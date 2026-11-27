@@ -547,7 +547,7 @@ export const en: Messages = {
     persistRequest: 'Request persistent storage',
     reset: 'Reset records',
     resetConfirm: 'This deletes every task, call and work log stored on this device and returns to the initial state. It cannot be undone. Continue?',
-    resetHint: 'Tasks and calls stay on this device, so earlier work shows again when you reopen the app. Reset to see the initial state.',
+    resetHint: 'Opening the link in a new tab always starts fresh. Reloading the same tab keeps your work. Press to start fresh now.',
     persistOk: 'Persistent storage granted. (The browser still does not guarantee it.)',
     persistNo: 'The browser did not grant persistent storage.',
     install: 'Install app',

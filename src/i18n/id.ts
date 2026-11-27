@@ -547,7 +547,7 @@ export const id: Messages = {
     persistRequest: 'Minta penyimpanan permanen',
     reset: 'Reset catatan',
     resetConfirm: 'Semua tugas, panggilan, dan log kerja di perangkat ini akan dihapus dan aplikasi kembali ke keadaan awal. Tidak bisa dibatalkan. Lanjutkan?',
-    resetHint: 'Tugas dan panggilan tetap tersimpan di perangkat ini, jadi pekerjaan sebelumnya muncul lagi saat aplikasi dibuka. Reset untuk kembali ke keadaan awal.',
+    resetHint: 'Membuka tautan di tab baru selalu mulai dari awal. Memuat ulang tab yang sama menyimpan pekerjaan. Tekan untuk mulai dari awal sekarang.',
     persistOk: 'Penyimpanan permanen diizinkan. (Peramban tetap tidak menjaminnya.)',
     persistNo: 'Peramban tidak mengizinkan penyimpanan permanen.',
     install: 'Pasang aplikasi',

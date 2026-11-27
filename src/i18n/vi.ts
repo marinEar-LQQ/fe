@@ -547,7 +547,7 @@ export const vi: Messages = {
     persistRequest: 'Yêu cầu lưu trữ lâu dài',
     reset: 'Đặt lại dữ liệu',
     resetConfirm: 'Thao tác này xóa mọi công việc, cuộc gọi và nhật ký lưu trên thiết bị này và trở về trạng thái ban đầu. Không thể hoàn tác. Tiếp tục?',
-    resetHint: 'Công việc và cuộc gọi được lưu trên thiết bị này nên lần mở sau vẫn thấy nội dung cũ. Đặt lại để về trạng thái ban đầu.',
+    resetHint: 'Mở liên kết ở tab mới luôn bắt đầu lại từ đầu. Tải lại cùng tab vẫn giữ nội dung đang làm. Nhấn để bắt đầu lại ngay.',
     persistOk: 'Đã cho phép lưu trữ lâu dài. (Trình duyệt vẫn không bảo đảm.)',
     persistNo: 'Trình duyệt không cho phép lưu trữ lâu dài.',
     install: 'Cài ứng dụng',

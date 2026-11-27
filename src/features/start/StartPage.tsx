@@ -1,5 +1,7 @@
 import type { LangCode } from 'marinear-engine'
+import { useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { demoSeedStatus } from '../../engine/demoHistory'
 import { useApp } from '../../app/AppContext'
 import { LANGS } from '../../contracts/lang'
 import { useT } from '../../i18n'
@@ -17,6 +19,8 @@ export function StartPage() {
   const navigate = useNavigate()
   const lang = state.preferences.targetLang
   const active = state.taskState.active
+  // 첫 실행 때 시연 데이터를 쌓는 동안에는 시작 버튼을 잠근다 (쌓인 뒤 '이어서 하기'가 된다)
+  const preparing = useSyncExternalStore(demoSeedStatus.subscribe, demoSeedStatus.get)
   const go = (to: string, fresh = false) => {
     dispatch({ type: 'set-pref', prefs: { langChosen: true } })
     navigate(to, { replace: true, state: fresh ? { fresh: true } : undefined })
@@ -45,8 +49,8 @@ export function StartPage() {
       </div>
       <div className="start-foot">
         {active && <p className="small muted start-current">{t.start.current(active.ownVessel)}</p>}
-        <button type="button" className="btn primary lg block" onClick={() => go(active ? '/monitor' : '/task')}>
-          {active ? t.start.resume : t.start.start}
+        <button type="button" className="btn primary lg block" onClick={() => go(active ? '/monitor' : '/task')} disabled={preparing}>
+          {preparing ? t.start.preparing : active ? t.start.resume : t.start.start}
         </button>
         {active && (
           <button type="button" className="btn lg block" onClick={() => go('/task', true)}>

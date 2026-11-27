@@ -2,6 +2,7 @@ import { DEFAULT_ASSET_MANIFEST, analyzeFile, type EngineClient, type LoadProgre
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { CaptureError, startCapture, type CaptureHandle } from '../audio/capture'
 import { createEngine, type EngineKind, type EngineSetup } from '../engine'
+import { AUTO_DEMO, demoSeedStatus, seedDemoHistory } from '../engine/demoHistory'
 import type { DemoControls } from '../engine/demo'
 import { markDisconnected } from '../engine/extensions'
 import { restoreActiveTask } from '../engine/restore'
@@ -158,6 +159,21 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     const unsub = engine.subscribe((event) => dispatch({ type: 'engine-event', event }))
     restoreActiveTask(engine).then(
       async (task) => {
+        // 첫 실행(저장된 작업 없음): 빈 화면 대신 시연 데이터를 쌓아 둔다 — 결과에는 "시연 데이터" 배지가 붙는다
+        if (!task && AUTO_DEMO && engine.seedDemoHistory) {
+          // 개발 모드에서는 이 효과가 두 번 돈다 — 이미 쌓는 중이면 먼저 시작한 쪽에 맡긴다
+          if (demoSeedStatus.get()) return
+          demoSeedStatus.set(true)
+          try {
+            const res = await seedDemoHistory(engine)
+            const seeded = await engine.getTaskLog(res.currentTaskId)
+            task = seeded.versions.find((v) => v.version === seeded.task.activeVersion) ?? null
+          } catch {
+            // 쌓기에 실패해도 앱은 빈 상태로 그대로 쓸 수 있다
+          } finally {
+            demoSeedStatus.set(false)
+          }
+        }
         dispatch({ type: 'task-loaded', task })
         if (!task) return
         // 새로고침 후 복원: 이 작업의 저장된 교신을 목록에 다시 채운다

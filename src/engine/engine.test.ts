@@ -7,7 +7,7 @@ import { restoreActiveTask } from './restore'
 import { applyEvent, buildFeed, initialState, reducer, type AppState } from '../app/state'
 import { demoControls, findDemoTask } from './demo'
 import { AUDIO_FLAG_LABEL, REASON_LABEL } from '../contracts/labels'
-import { buildTimeline, correctionInfo, displayTranscript } from './report'
+import { buildTimeline, displayTranscript } from './report'
 
 /**
  * marinear-engine 의 MockEngineClient(실제 EngineCore·규칙·IndexedDB + 시연 ASR)로
@@ -33,7 +33,7 @@ async function expectEngineError(p: Promise<unknown>, code: string) {
 }
 
 describe('demo task reuse', () => {
-  it('reuses an existing 해동호 / A선박 / PNIT T3 task instead of seeding a new one', async () => {
+  it('reuses an existing demo task (DEMO_TASK) instead of seeding a new one', async () => {
     const { engine, demo } = await setup()
     expect(await findDemoTask(engine)).toBeNull()
     const first = await demo.ensureDemoTask()
@@ -58,7 +58,7 @@ describe('MockEngineClient scenario → UI state', () => {
     expect(firstRev && firstRev.type === 'analysis.final' && firstRev.payload.result.crossCheck).toBe('pending')
 
     const entries = state.messageState.order.map((id) => state.messageState.byId[id])
-    expect(entries).toHaveLength(6)
+    expect(entries).toHaveLength(9) // 팀 대본 3개, 9개 대사
     for (const e of entries) {
       expect(e.result?.revision).toBeGreaterThanOrEqual(2)
       expect(e.result?.crossCheck).toBe('complete')
@@ -68,13 +68,16 @@ describe('MockEngineClient scenario → UI state', () => {
     }
 
     const kinds = entries.map((e) => e.result!.comparison.kind)
-    expect(kinds).toContain('difference') // 사례 A
-    expect(kinds).toContain('unrelated') // 사례 D
-    expect(kinds).toContain('match')
+    expect(kinds).toContain('difference') // 기록은 PNIT, 교신은 HPNT
+    expect(kinds).toContain('ambiguous')
+    expect(kinds).toContain('unrelated') // 다른 선박 교신
     // 사례 B: 원음 교차 검사 후 ambiguous, 불확실 값은 [A / B]
-    const caseB = entries.find((e) => e.result!.comparison.reasonCodes.includes('ASR_DISAGREEMENT'))!
-    expect(caseB.result!.comparison.kind).toBe('ambiguous')
-    expect(displayTranscript(caseB.result!)).toMatch(/\[(PNIT \/ HPNT|HPNT \/ PNIT)\]/)
+    // 장소 후보 여럿: 불확실 값은 [A / B]
+    const multi = entries.find((e) => e.result!.comparison.reasonCodes.includes('MULTIPLE_CANDIDATES') && e.result!.comparison.kind === 'ambiguous')!
+    expect(displayTranscript(multi.result!)).toMatch(/\[(PNIT \/ HPNT|HPNT \/ PNIT)\]/)
+    // 오인식 후보 사전(TNIC→PNIT): 원음/완화음 단어 차이가 transcriptDiff 로 온다
+    const confusable = entries.find((e) => e.result!.comparison.reasonCodes.includes('ASR_CONFUSABLE'))!
+    expect(confusable.result!.transcriptDiff).toContainEqual({ op: 'changed', raw: 'TNIC', enhanced: 'PNIT' })
   })
 
   it('separates review / dismiss / apply and refuses stale or conflicting commands without retry', async () => {
@@ -112,7 +115,7 @@ describe('MockEngineClient scenario → UI state', () => {
     expect(after.counts.applied).toBe(1)
   })
 
-  it('exposes diffs, correction info and labels for every reason code / audio flag the engine emits', async () => {
+  it('exposes diffs and labels for every reason code / audio flag the engine emits', async () => {
     const { engine, demo } = await setup()
     const task = await demo.ensureDemoTask()
     await demo.playScenario(task.taskId)
@@ -123,14 +126,12 @@ describe('MockEngineClient scenario → UI state', () => {
       for (const code of r.comparison.reasonCodes) expect(REASON_LABEL[code], code).toBeTruthy()
       for (const f of r.audioFlags) expect(AUDIO_FLAG_LABEL[f], f).toBeTruthy()
     }
-    // 레이블 표는 ReasonCode 16개 전부 (Record<ReasonCode, string> 으로 타입 강제 + 개수 확인)
-    expect(Object.keys(REASON_LABEL)).toHaveLength(16)
+    // 레이블 표는 ReasonCode 17개 전부 (Record<ReasonCode, string> 으로 타입 강제 + 개수 확인)
+    expect(Object.keys(REASON_LABEL)).toHaveLength(17)
 
     const caseA = results.find((r) => r.comparison.kind === 'difference')!
     expect(caseA.comparison.diffs).toContainEqual({ field: 'terminalId', taskValue: 'PNIT', heardValue: 'HPNT' })
 
-    const correction = results.map(correctionInfo).find((c) => c && c.negated.length > 0)
-    expect(correction?.negated).toContain('HPNT')
   })
 
   it('analyzes a fixture WAV through the file path (analyzePcm) with progress stages and r1 → r2', async () => {

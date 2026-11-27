@@ -84,7 +84,7 @@ const AUDIO_FLAG_HINT: Record<AnalysisResult['audioFlags'][number], string> = {
   TRUNCATED: '발화가 길어 일부만 분석했습니다.',
 }
 
-const UNC_FIELD: Record<AnalysisResult['uncertainties'][number]['field'], string> = { vessel: '선박', terminalId: '터미널', berthId: '선석', number: '숫자' }
+const UNC_FIELD: Record<AnalysisResult['uncertainties'][number]['field'], string> = { vessel: '선박', terminalId: '터미널', berthId: '선석', time: '시각', number: '숫자' }
 
 /** 기준값/교신값의 터미널·선석을 나눠 그리고, diffs 에 있는 필드는 강조한다 */
 function PlaceValue({ terminal, berth, diffs, side }: { terminal: string; berth: string; diffs: FieldDiff[]; side: 'task' | 'heard' }) {

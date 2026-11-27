@@ -37,6 +37,7 @@ export const REASON_LABEL: Record<ReasonCode, string> = {
   NO_TASK: '등록된 작업 없음',
   CROSS_CHECK_PENDING: '원음 교차 검사 중',
   AUDIO_QUALITY: '음질 문제',
+  ASR_CONFUSABLE: '인식이 불확실합니다. 확인 필요',
 }
 
 /** 입력 품질 근거 (Utterance/AnalysisResult.audioFlags) */

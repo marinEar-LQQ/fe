@@ -74,8 +74,8 @@ export default defineConfig({
   preview: { headers: isolationHeaders },
   // marinear-engine Worker 는 ES module 로 번들한다
   worker: { format: 'es' },
-  // transformers.js 는 사전 번들하면 ONNX WASM 경로가 깨진다
-  optimizeDeps: { exclude: ['@huggingface/transformers'] },
+  // transformers.js·rnnoise-wasm 은 사전 번들하면 WASM 경로가 깨진다 (marinear-engine README)
+  optimizeDeps: { exclude: ['@huggingface/transformers', '@shiguredo/rnnoise-wasm'] },
   test: {
     // marinear-engine dist 는 확장자 없는 import(번들러 전용)라 Node ESM 으로 직접 못 읽는다 → Vite 로 변환
     server: { deps: { inline: ['marinear-engine'] } },

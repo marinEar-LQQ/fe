@@ -26,10 +26,11 @@ const result = (revision: number, text: string, crossCheck: AnalysisResult['cros
   rawTranscript: null,
   enhancedTranscript: { text, segments: [], modelVersion: null, wordAligned: false },
   candidates: [],
-  entities: { vessel: 'A선박', terminalId: null, berthId: null, time: null, distance: null, identifier: null, changeIntent: null },
+  entities: { vessel: 'A선박', terminalId: null, berthId: null, time: null, distance: null, identifier: null, changeIntent: null, speed: null, course: null, instructions: [] },
   comparison: { kind: 'ambiguous', reasonCodes: ['TERMINAL_MISSING'], taskId: 't1', taskVersion: 1, diffs: [] },
   uncertainties: [],
   crossCheck,
+  transcriptDiff: null,
   audioFlags: [],
   modelVersions: { asr: null, enhancer: null },
   catalogVersion: 'demo-catalog-v1',
@@ -108,7 +109,7 @@ describe('applyEvent', () => {
   })
 
   it('keeps translations per utterance+revision+lang and does not regress ready → pending', () => {
-    const t = { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id' as const, protectedTokens: [], modelVersion: null, issues: [], createdAt: '' }
+    const t = { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id' as const, protectedTokens: [], modelVersion: null, issues: [], createdAt: '', summary: null, reference: false }
     const s = run([ev('translation.updated', { translation: { ...t, status: 'ready', text: 'halo' } }), ev('translation.updated', { translation: { ...t, status: 'pending', text: null } })])
     expect(s.translations[translationKey('u1', 2, 'id')].status).toBe('ready')
     expect(s.translations[translationKey('u1', 1, 'id')]).toBeUndefined()
@@ -160,7 +161,7 @@ describe('translationTargets', () => {
     const s = run([queued(), ev('analysis.final', { result: result(2, 'r2') })], ready())
     expect(translationTargets(s, 'ko')).toEqual([])
     expect(translationTargets(s, 'vi')).toEqual([]) // not_installed
-    const requested = reducer(s, { type: 'translation', translation: { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id', status: 'pending', text: null, protectedTokens: [], modelVersion: null, issues: [], createdAt: '' } })
+    const requested = reducer(s, { type: 'translation', translation: { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id', status: 'pending', text: null, protectedTokens: [], modelVersion: null, issues: [], createdAt: '', summary: null, reference: false } })
     expect(translationTargets(requested, 'id')).toEqual([])
   })
 })

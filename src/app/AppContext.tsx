@@ -134,7 +134,7 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
   useEffect(() => {
     const lang = state.preferences.targetLang
     for (const { utteranceId: id, revision } of translationTargets(state, lang)) {
-      const base = { utteranceId: id, sourceRevision: revision, targetLang: lang, text: null, protectedTokens: [], modelVersion: null, createdAt: new Date().toISOString() }
+      const base = { utteranceId: id, sourceRevision: revision, targetLang: lang, text: null, protectedTokens: [], modelVersion: null, createdAt: new Date().toISOString(), summary: null, reference: false }
       dispatch({ type: 'translation', translation: { ...base, status: 'pending', issues: [] } })
       engine.requestTranslation(id, revision, lang).then(
         (translation) => dispatch({ type: 'translation', translation }),

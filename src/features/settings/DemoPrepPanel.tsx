@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useApp } from '../../app/AppContext'
 import { download } from '../../app/download'
 import { describeError } from '../../app/errors'
+import { useT } from '../../i18n'
 import { Card, Notice } from '../../ui/components'
 
 /**
@@ -10,6 +11,7 @@ import { Card, Notice } from '../../ui/components'
  */
 export function DemoPrepPanel() {
   const { state, engine, dispatch } = useApp()
+  const t = useT()
   const task = state.taskState.active
   const fileRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
@@ -21,10 +23,10 @@ export function DemoPrepPanel() {
     try {
       const file = await engine.exportTaskLog(task.taskId, 'json')
       download(file.filename, file.mimeType, file.content)
-      setMsg({ tone: 'info', text: `${file.filename} 을(를) 저장했습니다. 음성은 포함되지 않습니다.` })
+      setMsg({ tone: 'info', text: t.prep.saved(file.filename) })
     } catch (e) {
       const { code, message } = describeError(e)
-      setMsg({ tone: 'danger', text: `저장 실패: ${message} (${code})` })
+      setMsg({ tone: 'danger', text: t.prep.saveFailed(`${message} (${code})`) })
     } finally {
       setBusy(false)
     }
@@ -42,11 +44,11 @@ export function DemoPrepPanel() {
       dispatch({ type: 'task-loaded', task: active })
       setMsg({
         tone: 'info',
-        text: `${file.name} 을(를) 불러왔습니다 — ${active ? `${active.ownVessel} → ${active.targetVessel} · ${active.terminalId ?? ''} ${active.berthId ?? ''}` : imported.taskId}, 교신 ${log.counts.utterances}건. 작업 일지·재확인에서 확인하세요. (음성 미포함)`,
+        text: t.prep.loaded(file.name, active ? `${active.ownVessel} → ${active.targetVessel} · ${active.terminalId ?? ''} ${active.berthId ?? ''}`.trim() : imported.taskId, log.counts.utterances),
       })
     } catch (e) {
       const { code, message } = describeError(e)
-      setMsg({ tone: 'danger', text: `불러오기 실패: ${message} (${code}). 현재 작업은 바뀌지 않았습니다.` })
+      setMsg({ tone: 'danger', text: t.prep.loadFailed(`${message} (${code})`) })
     } finally {
       setBusy(false)
     }
@@ -54,8 +56,8 @@ export function DemoPrepPanel() {
 
   return (
     <Card>
-      <h2>시연 준비</h2>
-      <p className="small muted">실제 모델로 미리 분석한 작업 일지를 JSON 으로 저장해 두었다가, 시연 기기에서 불러와 그대로 보여 줄 수 있습니다. 음성 파일은 포함되지 않아 재생은 되지 않습니다.</p>
+      <h2>{t.prep.title}</h2>
+      <p className="small muted">{t.prep.hint}</p>
       {msg && (
         <div style={{ marginBottom: 12 }}>
           <Notice tone={msg.tone}>{msg.text}</Notice>
@@ -63,10 +65,10 @@ export function DemoPrepPanel() {
       )}
       <div className="btn-row">
         <button className="btn" onClick={() => void exportJson()} disabled={busy || !task}>
-          현재 작업 일지 JSON 저장
+          {t.prep.saveJson}
         </button>
         <button className="btn" onClick={() => fileRef.current?.click()} disabled={busy}>
-          JSON 불러오기
+          {t.prep.loadJson}
         </button>
         <input
           ref={fileRef}
@@ -80,7 +82,7 @@ export function DemoPrepPanel() {
           }}
         />
       </div>
-      {!task && <p className="small muted" style={{ marginBottom: 0 }}>저장하려면 먼저 작업을 등록하거나 불러오세요.</p>}
+      {!task && <p className="small muted">{t.prep.needTask}</p>}
     </Card>
   )
 }

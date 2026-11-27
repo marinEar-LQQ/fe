@@ -183,14 +183,19 @@ export function MonitorPage() {
         <div className="card soft">
           <LevelMeter level={inputState.level} />
           <p className="small muted">
-            {inputState.detail}
+            {`${inputState.device?.label || t.monitor.defaultInput} · ${inputState.device?.sampleRate ?? '-'} Hz`}
             {wakeText ? ` · ${wakeText}` : ''}
           </p>
           <p className="small">{t.monitor.keepScreenOn}</p>
         </div>
       )}
       {session.source === 'file' && <p className="small muted">{t.monitor.fileSending(fileName)}</p>}
-      {(inputState.status === 'error' || inputState.status === 'disconnected') && inputState.detail && <Notice tone="danger">{inputState.detail}</Notice>}
+      {(inputState.status === 'error' || inputState.status === 'disconnected') && inputState.issue && (
+        <Notice tone="danger">
+          {t.capture[inputState.issue.kind]}
+          {inputState.issue.extra && <div className="small muted">{inputState.issue.extra}</div>}
+        </Notice>
+      )}
 
       <Segmented<Filter>
         label={t.monitor.filterLabel}

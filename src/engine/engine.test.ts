@@ -199,7 +199,7 @@ describe('MockEngineClient scenario → UI state', () => {
     const task = await demo.ensureDemoTask()
     const note = await engine.saveNote(task.taskId, '관제에 재확인 요청')
     let log = await engine.getTaskLog(task.taskId)
-    expect(buildTimeline(log).filter((i) => i.kind === 'note').map((i) => i.detail)).toEqual(['관제에 재확인 요청'])
+    expect(buildTimeline(log).flatMap((i) => (i.kind === 'note' ? [i.note.text] : []))).toEqual(['관제에 재확인 요청'])
     await engine.saveNote(task.taskId, '', note.noteId)
     log = await engine.getTaskLog(task.taskId)
     expect(buildTimeline(log).filter((i) => i.kind === 'note')).toHaveLength(0)

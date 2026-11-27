@@ -18,7 +18,7 @@ export function validateDraft(draft: TaskDraft, catalog: CatalogManifest = CATAL
     const field = issue.field as keyof TaskDraft
     errors[field] ??= issue.message
   }
-  if (!draft.terminalId) errors.terminalId ??= '터미널을 선택하세요.'
-  else if (!draft.berthId) errors.berthId ??= '선석을 선택하세요.'
+  if (!draft.terminalId) errors.terminalId ??= 'required'
+  else if (!draft.berthId) errors.berthId ??= 'required'
   return errors
 }

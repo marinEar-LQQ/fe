@@ -4,18 +4,118 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { download } from '../../app/download'
 import { describeError } from '../../app/errors'
-import { entryFromLog } from '../../app/state'
-import { formatClock } from '../../contracts/labels'
-import { buildTimeline } from '../../engine/report'
-import { Badge, Card, EmptyState, Notice } from '../../ui/components'
+import { formatClock, formatDate } from '../../contracts/labels'
+import { buildTimeline, displayTranscript, reportStats, type TimelineItem } from '../../engine/report'
+import { headline } from '../../engine/transcript'
+import { useT } from '../../i18n'
+import { DemoBadge, EmptyState, IconPlay, KIND_MARK, Notice, StatusLabel, StatusMark } from '../../ui/components'
+import { placeText } from '../radio/MonitorPage'
+import { useClipPlayer } from '../radio/useClipPlayer'
 
+/** 06 타임라인 카드 하나 (▲◆○ 표식 · 시각 · 원문 · 상태 라벨 · 음성 듣기) */
+function TimelineCard({ item, onDeleteNote, player }: { item: TimelineItem; onDeleteNote: (id: string) => void; player: ReturnType<typeof useClipPlayer> }) {
+  const t = useT()
+  const time = <span className="time">{formatClock(item.at)}</span>
+
+  if (item.kind === 'utterance') {
+    const { entry } = item
+    const result = entry.result
+    const mark = result ? KIND_MARK[result.comparison.kind] : { shape: 'circle' as const, tone: 'plain' as const }
+    const id = entry.utterance.utteranceId
+    const msg = player.msgFor(id)
+    return (
+      <li className="card soft">
+        <StatusMark className="mark" shape={mark.shape} />
+        {time}
+        <p className="t-title" lang="ko">
+          {result ? displayTranscript(result, t) : t.report.notAnalyzed}
+        </p>
+        <div className="t-foot">
+          <span className="status-strip">
+            {result ? (
+              <Link to={`/reviews/${id}`}>
+                <StatusLabel tone={mark.tone}>{headline(result, t)}</StatusLabel>
+              </Link>
+            ) : (
+              <StatusLabel tone="plain">{t.stage.failed}</StatusLabel>
+            )}
+            {result && (result.comparison.kind === 'difference' || result.comparison.kind === 'ambiguous') && <span className="small muted">{t.review[item.reviewState]}</span>}
+            {entry.fixture && <DemoBadge />}
+          </span>
+          <button type="button" className="btn sm ghost no-print" onClick={() => void player.play(id)}>
+            <IconPlay />
+            {t.clip.listen}
+          </button>
+        </div>
+        {msg && <p className="small muted">{msg}</p>}
+      </li>
+    )
+  }
+
+  if (item.kind === 'task') {
+    const v = item.version
+    return (
+      <li className="card soft">
+        <StatusMark className="mark" shape="circle" />
+        {time}
+        <p className="t-title">
+          {t.report.taskVersion(v.version)} · <span className="mono">{placeText(v.terminalId, v.berthId)}</span>
+        </p>
+        <div className="t-foot">
+          <StatusLabel tone="plain">{v.sourceReviewEventId ? t.task.fromReview : t.task.manual}</StatusLabel>
+          <span className="small muted">
+            {v.ownVessel} → {v.targetVessel}
+          </span>
+        </div>
+      </li>
+    )
+  }
+
+  if (item.kind === 'review') {
+    const e = item.event
+    const label = t.review[e.action === 'apply' ? 'applied' : e.action === 'dismiss' ? 'dismissed' : 'reviewed']
+    return (
+      <li className="card soft">
+        <StatusMark className="mark" shape="circle" />
+        {time}
+        <p className="t-title">
+          {t.report.userCheck} · {label}
+        </p>
+        <div className="t-foot">
+          <Link to={`/reviews/${e.utteranceId}`}>
+            <StatusLabel tone={e.action === 'apply' ? 'ok' : 'plain'}>{e.action === 'apply' ? t.report.versionChange(e.taskVersionBefore, e.taskVersionAfter) : t.reviewDetail.noChange}</StatusLabel>
+          </Link>
+        </div>
+      </li>
+    )
+  }
+
+  return (
+    <li className="card soft">
+      <StatusMark className="mark" shape="circle" />
+      {time}
+      <p className="t-title">{item.note.text}</p>
+      <div className="t-foot">
+        <StatusLabel tone="plain">{t.report.note}</StatusLabel>
+        <button type="button" className="btn sm text no-print" onClick={() => onDeleteNote(item.note.noteId)}>
+          {t.report.deleteNote}
+        </button>
+      </div>
+    </li>
+  )
+}
+
+/** 06 작업별 교신 일지 + 07 작업 메모와 내보내기 (한 화면) */
 export function ReportPage() {
   const { state, engine } = useApp()
+  const t = useT()
+  const player = useClipPlayer()
   const task = state.taskState.active
   const [log, setLog] = useState<TaskLog | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [memo, setMemo] = useState('')
   const [msg, setMsg] = useState<{ tone: 'info' | 'danger'; text: string } | null>(null)
+  const [choosing, setChoosing] = useState(false)
 
   const reload = useCallback(async () => {
     if (!task) return
@@ -34,28 +134,41 @@ export function ReportPage() {
 
   if (!task)
     return (
-      <EmptyState title="작업이 없습니다" action={<Link className="btn primary" to="/task">작업 등록</Link>}>
-        작업을 등록하면 교신·기준 변경·확인 기록이 여기에 쌓입니다.
-      </EmptyState>
+      <>
+        <h1>{t.report.title}</h1>
+        <EmptyState
+          title={t.report.noTask}
+          action={
+            <Link className="btn primary" to="/task">
+              {t.monitor.registerTask}
+            </Link>
+          }
+        >
+          {t.report.noTaskHint}
+        </EmptyState>
+      </>
     )
-  if (loadError) return <Notice tone="danger">일지를 불러오지 못했습니다: {loadError}</Notice>
-  if (!log) return <EmptyState title="불러오는 중…" />
+  if (loadError) return <Notice tone="danger">{t.report.loadFailed(loadError)}</Notice>
+  if (!log) return <EmptyState title={t.common.loading} />
 
   const timeline = buildTimeline(log)
-  const fixtureCount = log.utterances.filter((u) => entryFromLog(u, log.sessions).fixture).length
-  const noteCount = log.notes.filter((n) => !n.deleted).length
+  const stats = reportStats(log)
+  const fixtureCount = timeline.filter((i) => i.kind === 'utterance' && i.entry.fixture).length
+  const firstVersion = log.versions[0]
 
-  async function addMemo() {
+  async function saveMemo(): Promise<boolean> {
     const text = memo.trim()
-    if (!text || !task) return
+    if (!text || !task) return true
     try {
       // 메모도 엔진 저장소(notes)에 저장한다 — 일지·내보내기와 같은 원본
       await engine.saveNote(task.taskId, text)
       setMemo('')
-      setMsg({ tone: 'info', text: '메모를 저장했습니다.' })
+      setMsg({ tone: 'info', text: t.report.memoSaved })
       await reload()
+      return true
     } catch (err) {
-      setMsg({ tone: 'danger', text: `메모 저장 실패: ${describeError(err).message}` })
+      setMsg({ tone: 'danger', text: t.report.memoFailed(describeError(err).message) })
+      return false
     }
   }
 
@@ -64,109 +177,106 @@ export function ReportPage() {
     try {
       // 엔진 규칙: 빈 내용으로 저장하면 삭제 표시(deleted)된다 — 기록 자체는 남는다
       await engine.saveNote(task.taskId, '', noteId)
-      setMsg({ tone: 'info', text: '메모를 삭제했습니다.' })
+      setMsg({ tone: 'info', text: t.report.memoDeleted })
       await reload()
     } catch (err) {
-      setMsg({ tone: 'danger', text: `메모 삭제 실패: ${describeError(err).message}` })
+      setMsg({ tone: 'danger', text: t.report.memoDeleteFailed(describeError(err).message) })
     }
   }
 
   async function exportAs(format: ExportFormat) {
+    setChoosing(false)
     try {
       const file = await engine.exportTaskLog(log!.task.taskId, format)
       download(file.filename, file.mimeType, file.content)
-      setMsg({ tone: 'info', text: `${file.filename} 파일을 만들었습니다. (음성 미포함)` })
+      setMsg({ tone: 'info', text: t.report.exported(file.filename) })
     } catch (e) {
-      setMsg({ tone: 'danger', text: `내보내기 실패: ${describeError(e).message}` })
+      setMsg({ tone: 'danger', text: t.report.exportFailed(describeError(e).message) })
     }
   }
 
   return (
     <>
-      <Card>
-        <div className="card-title-row">
-          <h2>
-            {task.ownVessel} → {task.targetVessel}
-          </h2>
-          <Badge tone="info">
-            현재 v{log.task.activeVersion} · {task.terminalId} {task.berthId}
-          </Badge>
-        </div>
-        <div className="stat-row">
-          <div className="stat">
-            <b>{log.counts.utterances}</b>
-            <span>교신</span>
-          </div>
-          <div className="stat">
-            <b>{log.counts.taskChanges}</b>
-            <span>기준 변경</span>
-          </div>
-          <div className="stat">
-            <b>{log.counts.reviewed + log.counts.dismissed + log.counts.applied}</b>
-            <span>사용자 확인</span>
-          </div>
-          <div className="stat">
-            <b>{noteCount}</b>
-            <span>메모</span>
-          </div>
-        </div>
-        {fixtureCount > 0 && <p className="small muted" style={{ marginBottom: 0 }}>교신 {log.counts.utterances}건 중 {fixtureCount}건은 시연 데이터입니다.</p>}
-      </Card>
+      <h1>{t.report.title}</h1>
 
-      <Card>
-        <h2>시간순 기록</h2>
-        {timeline.length === 0 ? (
-          <p className="muted">아직 기록이 없습니다.</p>
-        ) : (
+      <section className="card">
+        <div className="card-title-row">
+          <strong style={{ fontSize: 'var(--fs-md)' }}>{t.report.recordTitle(task.targetVessel)}</strong>
+          <span className="chip">{formatDate(firstVersion?.createdAt ?? log.task.createdAt)}</span>
+        </div>
+        <span className="mono small" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <span>{task.ownVessel}</span>
+          <b>{placeText(task.terminalId, task.berthId)}</b>
+          <span className="muted">v{log.task.activeVersion}</span>
+        </span>
+      </section>
+
+      <div className="stat-row" role="group" aria-label={t.report.statsLabel}>
+        <div className="stat">
+          <span>{t.report.statUtterances}</span>
+          <b>{stats.utterances}</b>
+        </div>
+        <div className="stat">
+          <span>{t.report.statChecks}</span>
+          <b>{stats.userChecks}</b>
+        </div>
+        <div className={`stat ${stats.unchecked > 0 ? 'alert' : ''}`}>
+          <span>{t.report.statUnchecked}</span>
+          <b>{stats.unchecked}</b>
+        </div>
+      </div>
+      {fixtureCount > 0 && <p className="small muted">{t.report.fixtureNote(stats.utterances, fixtureCount)}</p>}
+
+      <h2>{t.report.timeline}</h2>
+      {timeline.length === 0 ? (
+        <p className="small muted">{t.report.empty}</p>
+      ) : (
+        <div className="timeline-rail">
           <ol className="timeline">
             {timeline.map((item, i) => (
-              <li key={i}>
-                <time dateTime={item.at}>{formatClock(item.at)}</time>
-                <div>
-                  <div className="t-title">
-                    {item.kind === 'utterance' || item.kind === 'review' ? <Link to={`/reviews/${item.utteranceId}`}>{item.title}</Link> : item.title}
-                  </div>
-                  <div className="t-detail">{item.detail}</div>
-                  {item.kind === 'note' && (
-                    <button className="btn sm ghost no-print" onClick={() => void removeMemo(item.noteId)}>
-                      삭제
-                    </button>
-                  )}
-                </div>
-              </li>
+              <TimelineCard key={i} item={item} onDeleteNote={(id) => void removeMemo(id)} player={player} />
             ))}
           </ol>
-        )}
-      </Card>
+        </div>
+      )}
 
-      <Card className="no-print">
-        <h2>일지 메모</h2>
-        {msg && (
-          <div style={{ marginBottom: 12 }}>
-            <Notice tone={msg.tone}>{msg.text}</Notice>
+      {/* 07 작업 메모와 내보내기 */}
+      <section className="card no-print" style={{ gap: 8, marginTop: 4 }}>
+        <label htmlFor="memo" style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>
+          {t.report.memoLabel}
+        </label>
+        <textarea id="memo" className="input" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder={t.report.memoPlaceholder} style={{ resize: 'none' }} />
+      </section>
+      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      <div className="btn-grid no-print">
+        <button
+          type="button"
+          className="btn primary md"
+          aria-expanded={choosing}
+          onClick={async () => {
+            // 일지 저장: 쓰던 메모를 먼저 일지에 넣고, 내보낼 형식을 고른다
+            if (await saveMemo()) setChoosing((c) => !c)
+          }}
+        >
+          {t.report.saveLog}
+        </button>
+        <button type="button" className="btn md" onClick={() => window.print()}>
+          {t.report.print}
+        </button>
+      </div>
+      {choosing && (
+        <div className="card soft no-print" role="group" aria-label={t.report.formatLabel}>
+          <span className="small muted">{t.report.formatHint}</span>
+          <div className="btn-grid">
+            <button type="button" className="btn" onClick={() => void exportAs('txt')}>
+              TXT
+            </button>
+            <button type="button" className="btn" onClick={() => void exportAs('json')}>
+              JSON
+            </button>
           </div>
-        )}
-        <div className="field" style={{ marginBottom: 12 }}>
-          <label htmlFor="memo">직접 메모</label>
-          <textarea id="memo" value={memo} onChange={(e) => setMemo(e.target.value)} placeholder="예: 14:20 관제에 재확인 요청함" />
         </div>
-        <div className="btn-row">
-          <button className="btn primary" onClick={() => void addMemo()} disabled={!memo.trim()}>
-            메모 저장
-          </button>
-        </div>
-        <div className="btn-row" style={{ marginTop: 12 }}>
-          <button className="btn" onClick={() => void exportAs('txt')}>
-            TXT 내보내기
-          </button>
-          <button className="btn" onClick={() => void exportAs('json')}>
-            JSON 내보내기
-          </button>
-          <button className="btn" onClick={() => window.print()}>
-            인쇄 / PDF
-          </button>
-        </div>
-      </Card>
+      )}
     </>
   )
 }

@@ -1,7 +1,7 @@
-import type { AnalysisResult, TaskLog } from 'marinear-engine'
-import { entryFromLog } from '../app/state'
-import { COMPARISON_LABEL, REVIEW_LABEL } from '../contracts/labels'
-import { formatReason, transcriptPlainText } from './transcript'
+import type { AnalysisResult, ReviewEvent, ReviewState, TaskLog, TaskNote, TaskVersion } from 'marinear-engine'
+import { entryFromLog, type MessageEntry } from '../app/state'
+import { needsReview } from '../contracts/labels'
+import { transcriptPlainText } from './transcript'
 
 /** 일지·내보내기용 자막: 불확실 후보 전부를 [A / B] 로 붙인다 (transcript.ts 규칙) */
 export const displayTranscript = transcriptPlainText
@@ -16,48 +16,27 @@ export function correctionInfo(result: AnalysisResult): { negated: string[]; unc
   return negated.length || unclear ? { negated, unclear } : null
 }
 
+/** 06 타임라인 항목 — 문구는 화면 언어로 그린다 (여기서는 데이터만) */
 export type TimelineItem =
-  | { kind: 'task'; at: string; title: string; detail: string }
-  | { kind: 'utterance'; at: string; title: string; detail: string; utteranceId: string }
-  | { kind: 'review'; at: string; title: string; detail: string; utteranceId: string }
-  | { kind: 'note'; at: string; title: string; detail: string; noteId: string }
+  | { kind: 'task'; at: string; version: TaskVersion }
+  | { kind: 'utterance'; at: string; entry: MessageEntry; reviewState: ReviewState }
+  | { kind: 'review'; at: string; event: ReviewEvent }
+  | { kind: 'note'; at: string; note: TaskNote }
 
-/** 엔진이 저장한 기록(TaskLog)만으로 시간순 일지를 만든다 */
+/** 엔진이 저장한 기록(TaskLog)만으로 시간순 일지를 만든다 (삭제 표시된 메모 제외) */
 export function buildTimeline(log: TaskLog): TimelineItem[] {
   const items: TimelineItem[] = []
-  for (const v of log.versions) {
-    items.push({
-      kind: 'task',
-      at: v.createdAt,
-      title: `작업 기준 v${v.version} ${v.sourceReviewEventId ? '(교신 확인 후 반영)' : '(직접 등록)'}`,
-      detail: `${v.ownVessel} → ${v.targetVessel} · ${v.terminalId ?? '터미널 미정'} ${v.berthId ?? ''}`.trim(),
-    })
-  }
+  for (const v of log.versions) items.push({ kind: 'task', at: v.createdAt, version: v })
   for (const u of log.utterances) {
-    const entry = entryFromLog(u, log.sessions)
-    const result = entry.result
-    const kind = result ? COMPARISON_LABEL[result.comparison.kind] : '분석 결과 없음'
-    const reasons = result?.comparison.reasonCodes.map((r) => formatReason(r, result)).join(', ')
-    items.push({
-      kind: 'utterance',
-      at: u.utterance.capturedAt,
-      title: `교신 · ${kind}${entry.fixture ? ' · 시연 데이터' : ''}`,
-      detail: result
-        ? `"${displayTranscript(result)}"${reasons ? ` — ${reasons}` : ''} (기준 v${u.utterance.taskVersion}, r${result.revision})`
-        : `원음 보존 · 분석 미완료 (기준 v${u.utterance.taskVersion})`,
-      utteranceId: u.utterance.utteranceId,
-    })
-    for (const ev of u.reviewEvents) {
-      const label = ev.action === 'apply' ? REVIEW_LABEL.applied : ev.action === 'dismiss' ? REVIEW_LABEL.dismissed : REVIEW_LABEL.reviewed
-      items.push({
-        kind: 'review',
-        at: ev.at,
-        title: `사용자 확인 · ${label}`,
-        detail: ev.action === 'apply' ? `작업 기준 v${ev.taskVersionBefore} → v${ev.taskVersionAfter}` : `작업 기준 변경 없음 (r${ev.resultRevision})`,
-        utteranceId: ev.utteranceId,
-      })
-    }
+    items.push({ kind: 'utterance', at: u.utterance.capturedAt, entry: entryFromLog(u, log.sessions), reviewState: u.reviewState })
+    for (const event of u.reviewEvents) items.push({ kind: 'review', at: event.at, event })
   }
-  for (const n of log.notes) if (!n.deleted) items.push({ kind: 'note', at: n.at, title: '직접 메모', detail: n.text, noteId: n.noteId })
+  for (const note of log.notes) if (!note.deleted) items.push({ kind: 'note', at: note.at, note })
   return items.sort((a, b) => a.at.localeCompare(b.at))
+}
+
+/** 06 통계: 건수는 엔진 TaskLog.counts 기준. 미확인 = 확인이 필요한 판정(장소 차이·재확인 필요) 중 아직 처리하지 않은 것 */
+export function reportStats(log: TaskLog): { utterances: number; userChecks: number; unchecked: number } {
+  const unchecked = log.utterances.filter((u) => needsReview(u.results[u.results.length - 1]?.comparison.kind) && u.reviewState === 'unreviewed').length
+  return { utterances: log.counts.utterances, userChecks: log.counts.reviewed + log.counts.dismissed + log.counts.applied, unchecked }
 }

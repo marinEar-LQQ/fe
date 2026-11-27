@@ -33,6 +33,12 @@ export interface MessageEntry {
 export type Filter = 'all' | 'mine' | 'review'
 /** 화면의 입력 장치 상태 (엔진 input.status 와 별개로, 마이크 권한·캡처 상태를 나타낸다) */
 export type UiInputStatus = 'idle' | 'requesting' | 'capturing' | 'disconnected' | 'error'
+/** 입력 문제 종류 — 문구는 화면 언어로 (t.capture[kind]). extra 는 엔진·브라우저가 준 원문 */
+export type InputIssueKind = 'insecure' | 'unsupported' | 'permission-denied' | 'no-device' | 'device-busy' | 'unknown' | 'disconnected' | 'open-failed'
+export interface InputIssue {
+  kind: InputIssueKind
+  extra?: string
+}
 /** 화면에서 시작한 수신 종류. demo 는 Mock 의 playScenario */
 export type UiSource = 'live' | 'file' | 'demo'
 export type EngineStatus = Readiness['engine']
@@ -51,7 +57,7 @@ export interface GapEntry {
 export interface AppState {
   taskState: { active: TaskVersion | null; loaded: boolean }
   /** status: 화면(마이크) 상태, engine: 현재 live 세션에 대해 엔진이 보낸 input.status */
-  inputState: { status: UiInputStatus; level: number; detail: string | null; engine: InputStatus | null }
+  inputState: { status: UiInputStatus; level: number; device: { label: string; sampleRate: number } | null; issue: InputIssue | null; engine: InputStatus | null }
   wakeLock: WakeLockState
   engineState: { queueDepth: number; readiness: Readiness | null }
   /** 모델 다운로드·검사 진행 (설정 > 분석 엔진). 화면 이동해도 유지 */
@@ -92,7 +98,7 @@ export function loadPreferences(): AppState['preferences'] {
 export function initialState(prefs?: AppState['preferences']): AppState {
   return {
     taskState: { active: null, loaded: false },
-    inputState: { status: 'idle', level: 0, detail: null, engine: null },
+    inputState: { status: 'idle', level: 0, device: null, issue: null, engine: null },
     wakeLock: 'off',
     engineState: { queueDepth: 0, readiness: null },
     assets: { loading: false, progress: {}, error: null },
@@ -118,7 +124,7 @@ export type Action =
   | { type: 'assets-progress'; progress: LoadProgress[] }
   | { type: 'assets-done'; error: string | null }
   | { type: 'session'; sessionId: string | null; source: UiSource | null }
-  | { type: 'input'; status: UiInputStatus; level?: number; detail?: string | null }
+  | { type: 'input'; status: UiInputStatus; level?: number; device?: { label: string; sampleRate: number } | null; issue?: InputIssue | null }
   | { type: 'input-level'; level: number }
   | { type: 'translation'; translation: Translation }
   | { type: 'set-filter'; filter: Filter }
@@ -126,6 +132,8 @@ export type Action =
   | { type: 'error'; code: NoticeCode; message: string }
   | { type: 'wake-lock'; state: WakeLockState }
   | { type: 'pending-reviews'; count: number }
+  /** 앱 시작·작업 불러오기 때 저장된 일지의 발화를 교신 목록에 채운다 (새로고침 후 복원) */
+  | { type: 'hydrate'; entries: MessageEntry[]; reviewStates: Record<string, ReviewState> }
   | { type: 'online-status'; status: OnlineStatus; translate?: boolean | null; error?: string | null }
   | { type: 'dismiss-error'; id: string }
   | { type: 'clear-messages' }
@@ -155,11 +163,32 @@ export function reducer(state: AppState, action: Action): AppState {
         inputState: { ...state.inputState, engine: action.source === 'live' && action.sessionId ? 'receiving' : null },
       }
     case 'input':
-      return { ...state, inputState: { ...state.inputState, status: action.status, level: action.level ?? (action.status === 'capturing' ? state.inputState.level : 0), detail: action.detail ?? null } }
+      return {
+        ...state,
+        inputState: {
+          ...state.inputState,
+          status: action.status,
+          level: action.level ?? (action.status === 'capturing' ? state.inputState.level : 0),
+          device: action.device ?? (action.status === 'capturing' ? state.inputState.device : null),
+          issue: action.issue ?? null,
+        },
+      }
     case 'wake-lock':
       return { ...state, wakeLock: action.state }
     case 'online-status':
       return { ...state, online: { status: action.status, translate: action.translate ?? state.online.translate, error: action.error ?? null } }
+    case 'hydrate': {
+      // 화면에 이미 있는(실시간으로 받은) 항목은 그대로 두고 없는 것만 더한다
+      const byId = { ...state.messageState.byId }
+      const order = [...state.messageState.order]
+      for (const e of action.entries) {
+        const id = e.utterance.utteranceId
+        if (byId[id]) continue
+        byId[id] = e
+        order.push(id)
+      }
+      return { ...state, messageState: { order, byId }, reviewState: { ...action.reviewStates, ...state.reviewState } }
+    }
     case 'pending-reviews':
       return state.pendingReviews === action.count ? state : { ...state, pendingReviews: action.count }
     case 'input-level':
@@ -212,7 +241,7 @@ export function applyEvent(state: AppState, event: AnyEngineEvent): AppState {
       let next: AppState = { ...s, engineState: { ...s.engineState, queueDepth } }
       if (gap && event.sessionId) next = withGap(next, event.sessionId, gap)
       if (!event.sessionId || event.sessionId !== s.session.sessionId) return next
-      if (status === 'disconnected') return { ...next, inputState: { status: 'disconnected', level: 0, detail: '입력 장치 연결이 끊겼습니다.', engine: status } }
+      if (status === 'disconnected') return { ...next, inputState: { status: 'disconnected', level: 0, device: null, issue: { kind: 'disconnected' }, engine: status } }
       return { ...next, inputState: { ...next.inputState, engine: status } }
     }
 
@@ -286,6 +315,12 @@ function withGap(s: AppState, sessionId: string, gap: GapEvent): AppState {
 /** 교신 목록 항목: 발화와 누락 구간을 세션 시간순으로 합친다 (최신이 위) */
 export type FeedItem = { kind: 'utterance'; entry: MessageEntry } | { kind: 'gap'; gap: GapEntry }
 
+/** 정렬 시각: 실제 시각(ISO) 기준, 없으면 세션 안 위치. 여러 세션·복원 항목이 섞여도 시간순 */
+function timeOf(iso: string, startMs: number): number {
+  const t = Date.parse(iso)
+  return Number.isNaN(t) ? startMs : t
+}
+
 export function buildFeed(state: AppState, filter: Filter): FeedItem[] {
   const items: { at: number; seq: number; item: FeedItem }[] = []
   state.messageState.order.forEach((id, seq) => {
@@ -293,10 +328,10 @@ export function buildFeed(state: AppState, filter: Filter): FeedItem[] {
     const kind = entry.result?.comparison.kind
     if (filter === 'mine' && kind === 'unrelated') return
     if (filter === 'review' && !(kind === 'difference' || kind === 'ambiguous')) return
-    items.push({ at: entry.utterance.startMs, seq, item: { kind: 'utterance', entry } })
+    items.push({ at: timeOf(entry.utterance.capturedAt, entry.utterance.startMs), seq, item: { kind: 'utterance', entry } })
   })
   // 누락 구간은 재확인 필터에서는 숨긴다 (판정 대상이 아님)
-  if (filter !== 'review') state.gaps.forEach((gap, i) => items.push({ at: gap.gap.startMs, seq: i, item: { kind: 'gap', gap } }))
+  if (filter !== 'review') state.gaps.forEach((gap, i) => items.push({ at: timeOf(gap.gap.at, gap.gap.startMs), seq: i, item: { kind: 'gap', gap } }))
   return items.sort((a, b) => b.at - a.at || b.seq - a.seq).map((x) => x.item)
 }
 

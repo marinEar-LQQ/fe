@@ -8,7 +8,7 @@ import { restoreActiveTask } from '../engine/restore'
 import { LangContext, messagesFor } from '../i18n'
 import { describeError } from './errors'
 import { useLiveGuards } from './useLiveGuards'
-import { initialState, loadPreferences, reducer, translationTargets, type Action, type AppState } from './state'
+import { entryFromLog, initialState, loadPreferences, reducer, translationTargets, type Action, type AppState } from './state'
 
 interface AppApi {
   state: AppState
@@ -84,7 +84,9 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     stateRef.current = state
   }, [state])
 
-  useLiveGuards(state.session.source === 'live' && state.inputState.status === 'capturing', dispatch)
+  // 알림 문구용: 현재 화면 언어 사전 (참조가 바뀌지 않게 ref 로 읽는다 → 화면 꺼짐 방지 effect 가 매 렌더 재시작되지 않음)
+  const getT = useCallback(() => messagesFor(stateRef.current.preferences.targetLang), [])
+  useLiveGuards(state.session.source === 'live' && state.inputState.status === 'capturing', dispatch, getT)
 
   const fail = useCallback((e: unknown) => {
     const { code, message } = describeError(e)
@@ -155,7 +157,21 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
   useEffect(() => {
     const unsub = engine.subscribe((event) => dispatch({ type: 'engine-event', event }))
     restoreActiveTask(engine).then(
-      (task) => dispatch({ type: 'task-loaded', task }),
+      async (task) => {
+        dispatch({ type: 'task-loaded', task })
+        if (!task) return
+        // 새로고침 후 복원: 이 작업의 저장된 교신을 목록에 다시 채운다
+        try {
+          const log = await engine.getTaskLog(task.taskId)
+          dispatch({
+            type: 'hydrate',
+            entries: log.utterances.map((u) => entryFromLog(u, log.sessions)),
+            reviewStates: Object.fromEntries(log.utterances.map((u) => [u.utterance.utteranceId, u.reviewState])),
+          })
+        } catch (e) {
+          fail(e)
+        }
+      },
       (e) => {
         fail(e)
         dispatch({ type: 'task-loaded', task: null })
@@ -284,9 +300,9 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
           // pcm 버퍼는 Worker 로 transfer 된다 — 이 호출 뒤 frame.pcm 을 다시 쓰지 않는다
           engine.appendAudio(sessionId, { ...frame, sessionId, seq: seq++, startMs }).catch(fail)
         },
-        onDisconnected: (reason) => {
-          dispatch({ type: 'input', status: 'disconnected', detail: reason })
-          dispatch({ type: 'error', code: 'INPUT_DISCONNECTED', message: `${reason} 수신을 중단했습니다. 장치를 다시 연결한 뒤 수신 시작을 누르세요.` })
+        onDisconnected: () => {
+          dispatch({ type: 'input', status: 'disconnected', issue: { kind: 'disconnected' } })
+          dispatch({ type: 'error', code: 'INPUT_DISCONNECTED', message: messagesFor(stateRef.current.preferences.targetLang).capture.disconnectedToast })
           captureRef.current = null
           const sid = sessionId
           sessionId = null
@@ -313,14 +329,14 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
         await handle.stop()
         captureRef.current = null
         const { code, message } = describeError(e)
-        dispatch({ type: 'input', status: 'error', detail: `${message} (${code})` })
+        dispatch({ type: 'input', status: 'error', issue: { kind: 'open-failed', extra: `${message} (${code})` } })
         return
       }
       dispatch({ type: 'session', sessionId, source: 'live' })
-      dispatch({ type: 'input', status: 'capturing', detail: `${handle.info.label || '기본 입력'} · ${handle.info.sampleRate} Hz` })
+      dispatch({ type: 'input', status: 'capturing', device: { label: handle.info.label, sampleRate: handle.info.sampleRate } })
     } catch (err) {
-      const message = err instanceof CaptureError ? err.message : `음성 입력 오류: ${(err as Error).message}`
-      dispatch({ type: 'input', status: 'error', detail: message })
+      // 권한 거절·장치 없음 등은 종류만 저장하고 문구는 화면 언어로
+      dispatch({ type: 'input', status: 'error', issue: err instanceof CaptureError ? { kind: err.kind } : { kind: 'unknown', extra: (err as Error).message } })
     }
   }, [engine, stop, fail])
 

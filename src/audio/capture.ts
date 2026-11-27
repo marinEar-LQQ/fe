@@ -32,13 +32,14 @@ export class CaptureError extends Error {
   }
 }
 
+/** 개발용 오류 메시지(Error.message). 화면 문구는 i18n 의 t.capture[kind] */
 export const CAPTURE_ERROR_TEXT: Record<CaptureErrorKind, string> = {
-  insecure: 'HTTPS 또는 localhost 에서만 음성 입력을 사용할 수 있습니다.',
-  unsupported: '이 브라우저는 음성 입력(getUserMedia/AudioWorklet)을 지원하지 않습니다.',
-  'permission-denied': '마이크(음성 입력) 권한이 거절되었습니다. 브라우저 사이트 설정에서 허용해 주세요.',
-  'no-device': '사용 가능한 음성 입력 장치가 없습니다. 무전기 변환 장치가 OS 음성 입력으로 인식되는지 확인하세요.',
-  'device-busy': '입력 장치를 다른 앱이 사용 중이거나 열 수 없습니다.',
-  unknown: '음성 입력을 시작하지 못했습니다.',
+  insecure: 'getUserMedia needs HTTPS or localhost',
+  unsupported: 'getUserMedia/AudioWorklet not supported',
+  'permission-denied': 'microphone permission denied',
+  'no-device': 'no audio input device',
+  'device-busy': 'audio input device busy or unreadable',
+  unknown: 'could not start audio input',
 }
 
 export async function listAudioInputs(): Promise<MediaDeviceInfo[]> {
@@ -91,7 +92,7 @@ export async function startCapture(deviceId: string | null, cb: CaptureCallbacks
 
   let stopped = false
   track.onended = () => {
-    if (!stopped) cb.onDisconnected('입력 장치 연결이 끊겼습니다.')
+    if (!stopped) cb.onDisconnected('track ended')
   }
 
   return {

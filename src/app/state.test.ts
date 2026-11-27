@@ -170,7 +170,7 @@ describe('translationTargets', () => {
 
 describe('live input status', () => {
   const live = () => reducer(initialState(), { type: 'session', sessionId: 's1', source: 'live' })
-  const gap = { reason: 'AUDIO_GAP' as const, startMs: 1500, endMs: 1800, missingSeq: { from: 15, to: 17 }, at: '' }
+  const gap = { reason: 'AUDIO_GAP' as const, startMs: 1500, endMs: 1800, missingSeq: { from: 15, to: 17 }, at: '2026-11-27T00:00:01.500Z' }
 
   it('starts at receiving once the live session is open and follows input.status for that session only', () => {
     let s = live()
@@ -188,7 +188,7 @@ describe('live input status', () => {
     const e = ev('input.status', { status: 'gap', gap, queueDepth: 0 }, { sessionId: 's1' })
     let s = run([queued(), e, { ...e, eventId: 'dup-id' }], live())
     expect(s.gaps).toHaveLength(1)
-    const later = { ...utt, utteranceId: 'u2', startMs: 3000 }
+    const later = { ...utt, utteranceId: 'u2', startMs: 3000, capturedAt: '2026-11-27T00:00:03Z' }
     s = run([ev('analysis.progress', { stage: 'queued', queueDepth: 1, utterance: later }, { utteranceId: 'u2' })], s)
     expect(buildFeed(s, 'all').map((i) => (i.kind === 'gap' ? 'gap' : i.entry.utterance.utteranceId))).toEqual(['u2', 'gap', 'u1'])
     expect(buildFeed(s, 'review').some((i) => i.kind === 'gap')).toBe(false)
@@ -214,5 +214,17 @@ describe('notifications', () => {
     const e = () => ev('engine.error', { code: 'ONLINE_UNAVAILABLE', message: 'x', recoverable: true })
     const s = run([e(), e(), e(), ev('engine.error', { code: 'AUDIO_GAP', message: 'gap', recoverable: true })])
     expect(s.errors.map((x) => x.code)).toEqual(['ONLINE_UNAVAILABLE', 'AUDIO_GAP'])
+  })
+})
+
+describe('restore after reload', () => {
+  it('hydrates stored utterances without overwriting live ones and keeps stored review states', () => {
+    const live = run([queued(), ev('analysis.final', { result: result(2, 'live r2') })])
+    const stored = { utterance: { ...utt, utteranceId: 'old', capturedAt: '2026-11-26T23:00:00Z' }, stage: 'done' as const, partialText: null, result: { ...result(2, 'old'), utteranceId: 'old' }, fixture: false }
+    const s = reducer(live, { type: 'hydrate', entries: [stored, { ...stored, utterance: utt, result: result(1, 'stale') }], reviewStates: { old: 'applied', u1: 'unreviewed' } })
+    expect(s.messageState.order).toEqual(['u1', 'old'])
+    expect(s.messageState.byId.u1.result?.enhancedTranscript?.text).toBe('live r2')
+    expect(s.reviewState.old).toBe('applied')
+    expect(buildFeed(s, 'all').map((i) => (i.kind === 'utterance' ? i.entry.utterance.utteranceId : 'gap'))).toEqual(['u1', 'old'])
   })
 })

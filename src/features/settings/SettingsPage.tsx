@@ -1,10 +1,13 @@
+import type { LangCode } from 'marinear-engine'
 import { useEffect, useState } from 'react'
 import { useApp } from '../../app/AppContext'
 import { listAudioInputs } from '../../audio/capture'
 import { LANGS } from '../../contracts/lang'
-import { Card } from '../../ui/components'
+import { useT } from '../../i18n'
+import { Card, Switch } from '../../ui/components'
 import { DemoPrepPanel } from './DemoPrepPanel'
 import { EnginePanel } from './EnginePanel'
+import { useEngineModeLabel } from './online'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -12,15 +15,18 @@ interface BeforeInstallPromptEvent extends Event {
 
 const fmtBytes = (n?: number) => (n === undefined ? '-' : n > 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`)
 
-
+/** 08 설정 — 시안 순서: 제목 → 언어 → 준비 상태 → 잡음 완화와 재확인 → (엔진·장치·시연·저장 공간·설치) */
 export function SettingsPage() {
-  const { state, dispatch, setLang } = useApp()
-  const { preferences } = state
+  const { state, dispatch, setLang, engineKind } = useApp()
+  const t = useT()
+  const { preferences, inputState } = state
+  const modeLabel = useEngineModeLabel()
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [storage, setStorage] = useState<{ usage?: number; quota?: number; persisted?: boolean } | null>(null)
   const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null)
   const [persistMsg, setPersistMsg] = useState<string | null>(null)
   const [shell, setShell] = useState<{ version: string; files: number } | 'none' | null>(null)
+  const installed = window.matchMedia?.('(display-mode: standalone)').matches
 
   // 앱 화면(shell) 캐시 상태: 활성 Service Worker 에 버전을 묻는다. 개발 서버에서는 SW 를 등록하지 않는다.
   useEffect(() => {
@@ -33,7 +39,6 @@ export function SettingsPage() {
       sw.postMessage('version', [ch.port2])
     })
   }, [])
-  const installed = window.matchMedia?.('(display-mode: standalone)').matches
 
   useEffect(() => {
     void listAudioInputs().then(setDevices)
@@ -51,100 +56,148 @@ export function SettingsPage() {
   }, [])
 
   const labelsHidden = devices.length > 0 && devices.every((d) => !d.label)
+  const readiness = state.engineState.readiness
+  const engineReady = Boolean(readiness?.canAnalyze) && (engineKind !== 'online' || state.online.status === 'ok')
+  // 준비 상태 — 음성 입력
+  const input =
+    inputState.status === 'capturing'
+      ? { ok: true, text: `${t.settings.inputConnected} · ${inputState.device?.label || t.monitor.defaultInput}` }
+      : inputState.status === 'requesting'
+        ? { ok: null, text: t.input.requesting }
+        : inputState.issue
+          ? { ok: false, text: t.capture[inputState.issue.kind] }
+          : { ok: false, text: devices.length ? t.settings.inputBefore : t.settings.inputNone }
 
   return (
     <>
+      <h1>{t.settings.title}</h1>
+
+      {/* 언어 */}
       <Card>
-        <h2>음성 입력</h2>
-        <div className="field">
-          <label htmlFor="dev">입력 장치</label>
-          <select id="dev" value={preferences.inputDeviceId ?? ''} onChange={(e) => dispatch({ type: 'set-pref', prefs: { inputDeviceId: e.target.value || null } })}>
-            <option value="">기본 입력 장치</option>
-            {devices.map((d, i) => (
-              <option key={d.deviceId || i} value={d.deviceId}>
-                {d.label || `입력 장치 ${i + 1}`}
+        <div className="inline-field">
+          <label htmlFor="lang" style={{ fontSize: 'var(--fs-md)', fontWeight: 700 }}>
+            {t.settings.language}
+          </label>
+          <select id="lang" className="select sm" value={preferences.targetLang} onChange={(e) => setLang(e.target.value as LangCode)} style={{ minWidth: 190 }}>
+            {LANGS.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.native}
               </option>
             ))}
           </select>
         </div>
-        <p className="small muted" style={{ marginBottom: 0 }}>
-          {devices.length === 0 ? '감지된 입력 장치가 없습니다. ' : labelsHidden ? '장치 이름은 첫 수신 시작(권한 허용) 후 표시됩니다. ' : ''}
-          무전기 변환 장치가 OS·브라우저에 음성 입력으로 인식되어야 합니다. 입력 레벨은 교신 화면에서 수신 시작 후 확인할 수 있습니다.
-        </p>
+      </Card>
+
+      {/* 준비 상태 */}
+      <Card>
+        <h2>{t.settings.readiness}</h2>
+        <div className="status-row">
+          <span>{t.settings.voiceInput}</span>
+          <strong className={input.ok === null ? '' : input.ok ? 'ok' : 'alert'}>{input.text}</strong>
+        </div>
+        <div className="status-row">
+          <span>{t.settings.engineRow}</span>
+          <strong className={engineReady ? 'ok' : 'alert'}>
+            {engineReady ? t.settings.engineReady : t.settings.engineNotReady}
+            {modeLabel ? ` · ${modeLabel}` : ''}
+          </strong>
+        </div>
+      </Card>
+
+      {/* 잡음 완화와 재확인 — 엔진에 끄는 옵션이 없어 스위치 대신 상태로 표시 */}
+      <Card>
+        <h2>{t.settings.noiseTitle}</h2>
+        <div className="setting-row">
+          <span>{t.settings.noise}</span>
+          <strong className="ok">{t.settings.alwaysOn}</strong>
+        </div>
+        <div className="setting-row">
+          <span>{t.settings.crossCheck}</span>
+          <strong className="ok">{t.settings.alwaysOn}</strong>
+        </div>
+        <p className="small muted">{t.settings.alwaysOnHint}</p>
       </Card>
 
       <EnginePanel />
 
-      <DemoPrepPanel />
-
+      {/* 음성 입력 장치 */}
       <Card>
-        <h2>번역 언어</h2>
+        <h2>{t.settings.device}</h2>
         <div className="field">
-          <label htmlFor="lang">선원 언어</label>
-          <select id="lang" value={preferences.targetLang} onChange={(e) => setLang(e.target.value as typeof preferences.targetLang)}>
-            {LANGS.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label} {l.code !== 'ko' ? `· ${l.native}` : ''}
+          <label htmlFor="dev">{t.settings.deviceLabel}</label>
+          <select id="dev" value={preferences.inputDeviceId ?? ''} onChange={(e) => dispatch({ type: 'set-pref', prefs: { inputDeviceId: e.target.value || null } })}>
+            <option value="">{t.settings.defaultDevice}</option>
+            {devices.map((d, i) => (
+              <option key={d.deviceId || i} value={d.deviceId}>
+                {d.label || t.settings.deviceN(i + 1)}
               </option>
             ))}
           </select>
         </div>
-        <p className="small muted" style={{ marginBottom: 0 }}>
-          한국어 원문은 항상 함께 표시됩니다. 설치되지 않은 언어는 클라우드로 몰래 번역하지 않고 ‘다운로드 필요’로 표시합니다.
+        <p className="small muted">
+          {devices.length === 0 ? `${t.settings.noDevices} ` : labelsHidden ? `${t.settings.labelsHidden} ` : ''}
+          {t.settings.deviceHint}
         </p>
       </Card>
 
+      {/* 화면 */}
       <Card>
-        <h2>화면</h2>
-        <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44 }}>
-          <input type="checkbox" checked={preferences.largeText} onChange={(e) => dispatch({ type: 'set-pref', prefs: { largeText: e.target.checked } })} style={{ width: 22, height: 22 }} />
-          큰 글씨 (자막 확대)
-        </label>
+        <h2>{t.settings.display}</h2>
+        <div className="setting-row">
+          <span>{t.settings.largeText}</span>
+          <Switch checked={preferences.largeText} label={t.settings.largeText} onText={t.settings.on} offText={t.settings.off} onChange={(v) => dispatch({ type: 'set-pref', prefs: { largeText: v } })} />
+        </div>
       </Card>
 
+      <DemoPrepPanel />
+
+      {/* 저장 공간 */}
       <Card>
-        <h2>저장 공간</h2>
-        <dl className="kv">
-          <dt>사용 중</dt>
-          <dd>{fmtBytes(storage?.usage)}</dd>
-          <dt>사용 가능</dt>
-          <dd>{fmtBytes(storage?.quota)}</dd>
-          <dt>영구 보존 요청</dt>
-          <dd>{storage?.persisted === undefined ? '지원 안 됨' : storage.persisted ? '승인됨' : '미승인'}</dd>
-        </dl>
+        <h2>{t.settings.storage}</h2>
+        <div className="status-row">
+          <span>{t.settings.used}</span>
+          <strong>{fmtBytes(storage?.usage)}</strong>
+        </div>
+        <div className="status-row">
+          <span>{t.settings.available}</span>
+          <strong>{fmtBytes(storage?.quota)}</strong>
+        </div>
+        <div className="status-row">
+          <span>{t.settings.persist}</span>
+          <strong className={storage?.persisted ? 'ok' : ''}>{storage?.persisted === undefined ? t.settings.unsupported : storage.persisted ? t.settings.granted : t.settings.notGranted}</strong>
+        </div>
         {storage?.persisted === false && (
           <button
             className="btn sm"
-            style={{ marginTop: 12 }}
+            style={{ alignSelf: 'flex-start' }}
             onClick={async () => {
               const ok = await navigator.storage.persist()
               setStorage((s) => ({ ...s, persisted: ok }))
-              setPersistMsg(ok ? '영구 보존이 승인되었습니다. (브라우저가 영구 보존을 보장하지는 않습니다)' : '브라우저가 영구 보존을 승인하지 않았습니다.')
+              setPersistMsg(ok ? t.settings.persistOk : t.settings.persistNo)
             }}
           >
-            영구 보존 요청
+            {t.settings.persistRequest}
           </button>
         )}
         {persistMsg && <p className="small muted">{persistMsg}</p>}
       </Card>
 
+      {/* 앱 설치 */}
       <Card>
-        <h2>앱 설치</h2>
+        <h2>{t.settings.install}</h2>
         {installed ? (
-          <p className="muted" style={{ margin: 0 }}>홈 화면 앱으로 실행 중입니다.</p>
+          <p className="muted">{t.settings.installed}</p>
         ) : installEvt ? (
-          <button className="btn primary" onClick={() => void installEvt.prompt()}>
-            홈 화면에 설치
+          <button className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={() => void installEvt.prompt()}>
+            {t.settings.installButton}
           </button>
         ) : (
-          <p className="small muted" style={{ margin: 0 }}>
-            Android Chrome: 메뉴 ⋮ → ‘홈 화면에 추가’. iPhone Safari: 공유 → ‘홈 화면에 추가’. 조타실에서는 화면을 켜둔 상태로 사용하세요. 화면 잠금·백그라운드에서는 연속 수신을 보장하지 않습니다.
-          </p>
+          <p className="small muted">{t.settings.installHint}</p>
         )}
-        <p className="small muted" style={{ marginBottom: 0 }}>
-          앱 화면 캐시: {shell === null ? '확인 중…' : shell === 'none' ? '없음 (개발 서버이거나 아직 설치 전)' : `버전 ${shell.version} · 파일 ${shell.files}개 저장됨`}
+        <p className="small muted">
+          {shell === null ? t.settings.shellChecking : shell === 'none' ? t.settings.shellNone : t.settings.shellCached(shell.version, shell.files)}
           <br />
-          앱 화면 캐시는 화면을 다시 여는 데만 필요합니다. 분석까지 오프라인으로 되는지는 ‘분석 엔진 · 오프라인 준비’ 표시를 따르세요.
+          {t.settings.shellHint}
         </p>
       </Card>
     </>

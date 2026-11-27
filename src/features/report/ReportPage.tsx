@@ -11,36 +11,42 @@ import { useT } from '../../i18n'
 import { DemoBadge, EmptyState, KIND_MARK, Notice, StatusLabel, StatusMark } from '../../ui/components'
 import { placeText } from '../radio/MonitorPage'
 
-/** 06 타임라인 카드 하나 (▲◆○ 표식 · 시각 · 원문 · 상태 라벨). 음성 재생은 교신·재확인 화면에서 한다 */
-function TimelineCard({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote?: (id: string) => void }) {
+/**
+ * 06 일지 표 한 줄: 시각 · 한 줄 요약 · 처리 결과.
+ * 교신 화면은 카드(번역·듣기·버튼)로 "일하는 화면", 일지는 표로 "정리된 기록"이 되도록 모양을 다르게 한다.
+ * 교신 줄을 누르면 재확인 상세로 간다. 음성 재생은 교신·재확인 화면에서 한다.
+ */
+function TimelineRow({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote?: (id: string) => void }) {
   const t = useT()
-  const time = <span className="time">{formatClock(item.at)}</span>
+  const time = <span className="log-time mono">{formatClock(item.at)}</span>
 
   if (item.kind === 'utterance') {
     const { entry } = item
     const result = entry.result
     const mark = result ? KIND_MARK[result.comparison.kind] : { shape: 'circle' as const, tone: 'plain' as const }
-    const id = entry.utterance.utteranceId
-    return (
-      <li className="card soft">
-        <StatusMark className="mark" shape={mark.shape} />
+    const needs = result && (result.comparison.kind === 'difference' || result.comparison.kind === 'ambiguous')
+    const body = (
+      <>
         {time}
-        <p className="t-title" lang="ko">
+        <span className="log-text" lang="ko">
           {result ? displayTranscript(result, t) : t.report.notAnalyzed}
-        </p>
-        <div className="t-foot">
-          <span className="status-strip">
-            {result ? (
-              <Link to={`/reviews/${id}`} state={{ from: '/report' }}>
-                <StatusLabel tone={mark.tone}>{headline(result, t)}</StatusLabel>
-              </Link>
-            ) : (
-              <StatusLabel tone="plain">{t.stage.failed}</StatusLabel>
-            )}
-            {result && (result.comparison.kind === 'difference' || result.comparison.kind === 'ambiguous') && <span className="small muted">{t.review[item.reviewState]}</span>}
-            {entry.fixture && <DemoBadge />}
-          </span>
-        </div>
+        </span>
+        <span className="log-result">
+          {result ? <StatusLabel tone={mark.tone}>{headline(result, t)}</StatusLabel> : <StatusLabel tone="plain">{t.stage.failed}</StatusLabel>}
+          {needs && <span className={`small ${item.reviewState === 'unreviewed' ? 'log-open' : 'muted'}`}>{t.review[item.reviewState]}</span>}
+          {entry.fixture && <DemoBadge />}
+        </span>
+      </>
+    )
+    return (
+      <li className="log-row">
+        {result ? (
+          <Link className="log-link" to={`/reviews/${entry.utterance.utteranceId}`} state={{ from: '/report' }}>
+            {body}
+          </Link>
+        ) : (
+          <div className="log-link">{body}</div>
+        )}
       </li>
     )
   }
@@ -48,55 +54,70 @@ function TimelineCard({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote
   if (item.kind === 'task') {
     const v = item.version
     return (
-      <li className="card soft">
-        <StatusMark className="mark" shape="circle" />
-        {time}
-        <p className="t-title">
-          {t.report.taskVersion(v.version)} · <span className="mono">{placeText(v.terminalId, v.berthId)}</span>
-        </p>
-        <div className="t-foot">
-          <StatusLabel tone="plain">{v.sourceReviewEventId ? t.task.fromReview : t.task.manual}</StatusLabel>
-          <span className="small muted">
-            {v.ownVessel === v.targetVessel ? v.targetVessel : `${v.ownVessel} → ${v.targetVessel}`}
+      <li className="log-row log-task">
+        <div className="log-link">
+          {time}
+          <span className="log-text">
+            {t.report.taskVersion(v.version)} · <b className="mono">{placeText(v.terminalId, v.berthId)}</b>
+          </span>
+          <span className="log-result">
+            <StatusLabel tone={v.sourceReviewEventId ? 'ok' : 'plain'}>{v.sourceReviewEventId ? t.task.fromReview : t.task.manual}</StatusLabel>
           </span>
         </div>
       </li>
     )
   }
 
-  if (item.kind === 'review') {
-    const e = item.event
-    const label = t.review[e.action === 'apply' ? 'applied' : e.action === 'dismiss' ? 'dismissed' : 'reviewed']
-    return (
-      <li className="card soft">
-        <StatusMark className="mark" shape="circle" />
-        {time}
-        <p className="t-title">
-          {t.report.userCheck} · {label}
-        </p>
-        <div className="t-foot">
-          <Link to={`/reviews/${e.utteranceId}`} state={{ from: '/report' }}>
-            <StatusLabel tone={e.action === 'apply' ? 'ok' : 'plain'}>{e.action === 'apply' ? t.report.versionChange(e.taskVersionBefore, e.taskVersionAfter) : t.reviewDetail.noChange}</StatusLabel>
-          </Link>
-        </div>
-      </li>
-    )
-  }
+  if (item.kind === 'review') return null
 
   return (
-    <li className="card soft">
-      <StatusMark className="mark" shape="circle" />
-      {time}
-      <p className="t-title">{item.note.text}</p>
-      <div className="t-foot">
-        <StatusLabel tone="plain">{t.report.note}</StatusLabel>
-        {onDeleteNote && (
-          <button type="button" className="btn sm text no-print" onClick={() => onDeleteNote(item.note.noteId)}>
-            {t.report.deleteNote}
-          </button>
-        )}
+    <li className="log-row log-note">
+      <div className="log-link">
+        {time}
+        <span className="log-text">{item.note.text}</span>
+        <span className="log-result">
+          <StatusLabel tone="plain">{t.report.note}</StatusLabel>
+          {onDeleteNote && (
+            <button type="button" className="btn sm text no-print" onClick={() => onDeleteNote(item.note.noteId)}>
+              {t.report.deleteNote}
+            </button>
+          )}
+        </span>
       </div>
     </li>
+  )
+}
+
+/** 처리 결과 요약: 장소 변경 · 확인 현황 · 인계 메모. 일지를 열면 맨 위에서 "이 작업에서 무슨 일이 있었나"를 바로 본다 */
+function OutcomeSummary({ log }: { log: TaskLog }) {
+  const t = useT()
+  const versions = [...log.versions].sort((a, b) => a.version - b.version)
+  const changes = versions.flatMap((v, i) => (i > 0 && v.sourceReviewEventId ? [`${placeText(versions[i - 1]!.terminalId, versions[i - 1]!.berthId)} → ${placeText(v.terminalId, v.berthId)}`] : []))
+  const current = versions[versions.length - 1]
+  const needing = log.utterances.filter((u) => {
+    const k = u.results[u.results.length - 1]?.comparison.kind
+    return k === 'difference' || k === 'ambiguous'
+  })
+  const done = needing.filter((u) => u.reviewState !== 'unreviewed').length
+  const memo = [...log.notes].filter((n) => !n.deleted && !SNAPSHOT_PREFIX.test(n.text)).sort((a, b) => a.at.localeCompare(b.at)).pop()
+  return (
+    <section className="card outcome" aria-label={t.report.summaryTitle}>
+      <h2>{t.report.summaryTitle}</h2>
+      <dl className="outcome-list">
+        <div>
+          <dt>{t.report.sumPlace}</dt>
+          <dd className={changes.length ? 'ok' : ''}>{changes.length ? <b className="mono">{changes.join(' · ')}</b> : t.report.sumPlaceSame(current ? placeText(current.terminalId, current.berthId) : '-')}</dd>
+        </div>
+        <div>
+          <dt>{t.report.sumChecks}</dt>
+          <dd className={needing.length > done ? 'alert' : ''}>{needing.length === 0 ? t.report.sumChecksNone : t.report.sumChecksVal(done, needing.length)}</dd>
+        </div>
+        <div>
+          <dt>{t.report.sumNote}</dt>
+          <dd>{memo ? memo.text : <span className="muted">{t.report.sumNoteNone}</span>}</dd>
+        </div>
+      </dl>
+    </section>
   )
 }
 
@@ -321,6 +342,7 @@ export function ReportPage() {
           <span className="btn sm alert">{t.flow.startReview} →</span>
         </Link>
       )}
+      <OutcomeSummary log={log} />
       {fixtureCount > 0 && <p className="small muted">{t.report.fixtureNote(stats.utterances, fixtureCount)}</p>}
       <button type="button" className="link-row no-print" onClick={() => document.getElementById('past-logs')?.scrollIntoView({ behavior: 'smooth' })}>
         {t.report.pastTitle}
@@ -331,10 +353,15 @@ export function ReportPage() {
       {timeline.length === 0 ? (
         <p className="small muted">{t.report.empty}</p>
       ) : (
-        <div className="timeline-rail">
-          <ol className="timeline">
-            {/* 사용자 확인 기록은 해당 교신 카드의 상태(확인함·반영함)로 보이므로 따로 한 줄씩 늘어놓지 않는다 */ timeline.filter((x) => x.kind !== 'review').map((item, i) => (
-              <TimelineCard key={i} item={item} onDeleteNote={viewingPast ? undefined : (id) => void removeMemo(id)} />
+        <div className="log-table">
+          <div className="log-head" aria-hidden="true">
+            <span>{t.report.colTime}</span>
+            <span>{t.report.colContent}</span>
+            <span>{t.report.colResult}</span>
+          </div>
+          <ol className="log-rows">
+            {timeline.map((item, i) => (
+              <TimelineRow key={i} item={item} onDeleteNote={viewingPast ? undefined : (id) => void removeMemo(id)} />
             ))}
           </ol>
         </div>

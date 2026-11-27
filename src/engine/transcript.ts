@@ -1,5 +1,5 @@
 import type { AnalysisResult, ReasonCode, Uncertainty, WordDiff } from 'marinear-engine'
-import { REASON_LABEL } from '../contracts/labels'
+import { ko, type Messages } from '../i18n/ko'
 
 /**
  * 자막 표시 규칙 (화면 공통, React 없이 테스트 가능)
@@ -8,13 +8,8 @@ import { REASON_LABEL } from '../contracts/labels'
  * - 원음/완화음 단어 차이는 엔진이 준 result.transcriptDiff 만 쓴다 (없으면 강조하지 않음).
  */
 
-export const UNCERTAIN_FIELD_LABEL: Record<Uncertainty['field'], string> = {
-  vessel: '선박',
-  terminalId: '터미널',
-  berthId: '선석',
-  time: '시각',
-  number: '숫자',
-}
+/** 한국어 필드명 (호환용). 화면에서는 t.fields 를 쓴다 */
+export const UNCERTAIN_FIELD_LABEL: Record<Uncertainty['field'], string> = ko.fields
 
 /** [A / B] 또는 후보가 하나면 [A?] */
 export function formatAlternatives(u: Pick<Uncertainty, 'alternatives'>): string {
@@ -24,12 +19,22 @@ export function formatAlternatives(u: Pick<Uncertainty, 'alternatives'>): string
 }
 
 /** 판정 사유 문구. ASR_CONFUSABLE 은 해당 값에 ? 를 붙여 "인식이 불확실합니다. [HPNT?] 확인 필요" */
-export function formatReason(code: ReasonCode, result: Pick<AnalysisResult, 'uncertainties'>): string {
+export function formatReason(code: ReasonCode, result: Pick<AnalysisResult, 'uncertainties'>, t: Messages = ko): string {
   if (code === 'ASR_CONFUSABLE') {
     const values = result.uncertainties.filter((u) => u.reason === 'ASR_CONFUSABLE').flatMap((u) => u.alternatives)
-    return values.length ? `인식이 불확실합니다. ${values.map((v) => `[${v}?]`).join(' ')} 확인 필요` : REASON_LABEL[code]
+    return values.length ? t.confusable(values.map((v) => `[${v}?]`).join(' ')) : t.reasons[code]
   }
-  return REASON_LABEL[code]
+  return t.reasons[code]
+}
+
+/** 카드 머리 문구: 불명확은 사유에 따라 시안 표현(인식 결과 불일치 / 터미널 미확인 / 장소 후보 여러 개) */
+export function headline(result: Pick<AnalysisResult, 'comparison'>, t: Messages = ko): string {
+  const { kind, reasonCodes } = result.comparison
+  if (kind !== 'ambiguous') return t.comparison[kind]
+  if (reasonCodes.includes('ASR_DISAGREEMENT') || reasonCodes.includes('ASR_CONFUSABLE')) return t.headline.asrMismatch
+  if (reasonCodes.includes('TERMINAL_MISSING')) return t.headline.terminalMissing
+  if (reasonCodes.includes('MULTIPLE_CANDIDATES')) return t.headline.multiplePlaces
+  return t.comparison.ambiguous
 }
 
 export type TranscriptToken =
@@ -94,12 +99,12 @@ export function diffCount(result: Pick<AnalysisResult, 'transcriptDiff'>): numbe
 }
 
 /** 일지·내보내기용 한 줄: 자막 + 불확실 후보 전부 "(확인 필요: 시각 [03:00 / 13:00] · 터미널 [HPNT?])" */
-export function transcriptPlainText(result: AnalysisResult): string {
+export function transcriptPlainText(result: AnalysisResult, t: Messages = ko): string {
   const body = transcriptTokens(result)
     .map((t) => (t.kind === 'text' ? t.text : t.kind === 'uncertain' ? t.text : (t.uncertain ?? t.enhanced ?? '')))
     .join('')
     .replace(/\s+/g, ' ')
     .trim()
-  const list = result.uncertainties.map((u) => `${UNCERTAIN_FIELD_LABEL[u.field]} ${formatAlternatives(u)}`)
-  return list.length ? `${body} (확인 필요: ${list.join(' · ')})` : body
+  const list = result.uncertainties.map((u) => `${t.fields[u.field]} ${formatAlternatives(u)}`)
+  return list.length ? `${body} (${t.common.checkNeeded}: ${list.join(' · ')})` : body
 }

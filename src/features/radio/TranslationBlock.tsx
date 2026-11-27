@@ -1,45 +1,44 @@
 import type { LangAvailability, LangCode, Translation } from 'marinear-engine'
-import { langLabel } from '../../contracts/lang'
-import { LANG_AVAILABILITY_LABEL, TRANSLATION_STATUS_LABEL } from '../../contracts/labels'
-import { SUMMARY_FIELD_KO, translationView } from '../../engine/translationView'
+import { translationView } from '../../engine/translationView'
+import { useT } from '../../i18n'
 import { Badge } from '../../ui/components'
 
 /**
- * 번역 영역 (한국어 원문은 카드 맨 위에 따로 있다)
- * 1) 정형 요약 카드 — 추출값 + 해사 표준 문구, 크게. 불확실한 줄은 '확인 필요'
+ * 05 카드 안 번역 (한국어 원문은 카드 위에 따로 있다). 점선 아래:
+ * 1) 정형 요약 — 엔진이 선택 언어로 만든 라벨·값(추출값 + 해사 표준 문구), 크게. 불확실한 줄은 '확인 필요'
  * 2) 참고 번역 — 기계번역, 작게, "부정확할 수 있음"
  */
 export function TranslationBlock({ lang, translation, crossCheckPending, availability }: { lang: LangCode; translation: Translation | undefined; crossCheckPending: boolean; availability: LangAvailability | undefined }) {
+  const t = useT()
   const view = translationView(translation)
   const status = translation
     ? translation.status === 'unavailable' && view.summary
-      ? '정형 요약 · 문장 번역 없음'
-      : TRANSLATION_STATUS_LABEL[translation.status]
+      ? t.translation.summaryOnly
+      : translation.status === 'ready'
+        ? null
+        : t.translationStatus[translation.status]
     : crossCheckPending
-      ? '원음 교차 검사 후 번역'
-      : TRANSLATION_STATUS_LABEL.pending
+      ? t.translation.afterCrossCheck
+      : t.translationStatus.pending
   return (
     <div className="utt-translation" lang={lang} aria-live="polite">
       <span className="lang-tag">
-        {langLabel(lang)} · {status}
-        {availability && availability !== 'ready' && availability !== 'source' ? ` · 문장 번역: ${LANG_AVAILABILITY_LABEL[availability]}` : ''}
+        {t.translation.label}
+        {status ? ` · ${status}` : ''}
+        {availability === 'not_installed' && !view.summary ? ` · ${t.langAvailability.not_installed}` : ''}
       </span>
 
       {view.summary && (
-        <dl className="summary-card" aria-label="정형 요약">
+        <dl className="summary-card" aria-label={t.translation.summary}>
           {view.summary.map((line, i) => (
             <div key={i} className={`summary-line ${line.uncertain ? 'uncertain-line' : ''}`}>
-              <dt>
-                {line.label}
-                <span className="summary-ko" lang="ko">
-                  {SUMMARY_FIELD_KO[line.field]}
-                </span>
-              </dt>
+              {/* 엔진이 선택 언어로 보낸 라벨. 다른 언어 요약이 오면 화면 언어 필드명으로 */}
+              <dt>{translation?.summary?.lang === lang ? line.label : t.summaryField[line.field]}</dt>
               <dd>
                 {line.uncertain ? <span className="uncertain">{line.value}</span> : line.value}
                 {line.uncertain && (
-                  <Badge tone="warn" title="확정값이 아닙니다">
-                    확인 필요
+                  <Badge tone="warn" title={t.translation.notConfirmed}>
+                    {t.common.checkNeeded}
                   </Badge>
                 )}
               </dd>
@@ -48,18 +47,16 @@ export function TranslationBlock({ lang, translation, crossCheckPending, availab
         </dl>
       )}
 
-      {view.text && <div className="translation-text">{view.text}</div>}
+      {view.text && <p className="translation-text">{view.text}</p>}
 
       {view.referenceText && (
         <div className="reference-translation">
-          <span className="lang-tag" lang="ko">
-            참고 번역 (부정확할 수 있음)
-          </span>
-          {view.referenceText}
+          <span className="lang-tag">{t.translation.reference}</span>
+          <p>{view.referenceText}</p>
         </div>
       )}
 
-      {!view.summary && !view.text && !view.referenceText && <span className="muted small" lang="ko">한국어 원문을 기준으로 확인하세요.</span>}
+      {!view.summary && !view.text && !view.referenceText && <span className="small muted">{t.translation.checkOriginal}</span>}
     </div>
   )
 }

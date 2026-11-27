@@ -283,9 +283,14 @@ p {
 
 /* 현재 작업 기준 (등고선 장식) */
 .task-ref {
+  color: var(--ink);
   overflow: hidden;
   padding: 14px 16px;
   gap: 2px;
+}
+.task-ref:hover {
+  color: var(--ink);
+  border-color: var(--alert);
 }
 .task-ref .contour {
   position: absolute;
@@ -699,6 +704,7 @@ textarea.input {
 }
 .select-wrap {
   position: relative;
+  display: block;
 }
 .select-wrap select {
   appearance: none;
@@ -809,7 +815,12 @@ textarea.input {
   bottom: 0;
   border-left: 2px dashed var(--ink);
 }
+/* 표식은 타임라인 안에서만 왼쪽 레일에 표시 */
+.card > .mark {
+  display: none;
+}
 .timeline-rail > * > .mark {
+  display: block;
   position: absolute;
   left: -26px;
   top: 12px;
@@ -1163,8 +1174,9 @@ progress::-moz-progress-bar {
   flex-direction: column;
   padding: var(--safe-top) 24px calc(28px + var(--safe-bottom));
 }
+/* min-height 만 있는 세로 flex 에서 0% 는 내용 크기로 계산되므로 0px 로 균등 분배 (시안: 위·아래 같은 비율) */
 .start-hero {
-  flex: 1;
+  flex: 1 1 0px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1197,7 +1209,7 @@ progress::-moz-progress-bar {
   right: 18px;
 }
 .start-foot {
-  flex: 1;
+  flex: 1 1 0px;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;

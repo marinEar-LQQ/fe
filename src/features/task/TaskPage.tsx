@@ -5,19 +5,22 @@ import { useApp } from '../../app/AppContext'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal, validateDraft } from '../../contracts/catalog'
 import { formatClock } from '../../contracts/labels'
-import { Badge, Card, DemoBadge, Notice } from '../../ui/components'
+import { useT } from '../../i18n'
+import { Card, Choice, DemoBadge, Notice, StatusMark } from '../../ui/components'
+import { placeText } from '../radio/MonitorPage'
 
 const EMPTY: TaskDraft = { ownVessel: '', targetVessel: '', terminalId: null, berthId: null, note: '' }
 
+/** 01 오늘 작업 등록 — 장소는 카탈로그 값만 선택 버튼으로. 부두 설명은 카탈로그에 없어 표시하지 않는다 */
 export function TaskPage() {
   const { state, saveTask, engine, dispatch } = useApp()
+  const t = useT()
   const active = state.taskState.active
   const navigate = useNavigate()
   const [draft, setDraft] = useState<TaskDraft>(EMPTY)
-  const [errors, setErrors] = useState<Partial<Record<keyof TaskDraft, string>>>({})
+  const [errors, setErrors] = useState<Partial<Record<keyof TaskDraft, true>>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [saved, setSaved] = useState(false)
   const [history, setHistory] = useState<TaskVersion[]>([])
 
   // 현재 기준을 폼 초기값으로
@@ -34,6 +37,9 @@ export function TaskPage() {
   }, [engine, dispatch, active])
 
   const terminal = findTerminal(CATALOG, draft.terminalId)
+  // 항만: 고른 터미널의 port, 아니면 카탈로그 전체가 한 항만일 때만 표시
+  const ports = [...new Set(CATALOG.terminals.map((x) => x.port).filter(Boolean))]
+  const port = terminal?.port ?? (ports.length === 1 ? ports[0] : null)
   const dirty =
     !active ||
     draft.ownVessel !== active.ownVessel ||
@@ -43,14 +49,16 @@ export function TaskPage() {
     draft.note !== active.note
 
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => {
-    setSaved(false)
     setDraft((d) => ({ ...d, [k]: v, ...(k === 'terminalId' ? { berthId: null } : {}) }))
     setErrors((e) => ({ ...e, [k]: undefined }))
   }
 
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault()
-    const next = validateDraft(draft)
+    if (!dirty) return navigate('/monitor')
+    // 엔진과 같은 검증 규칙 (메시지는 화면 언어로)
+    const found = validateDraft(draft)
+    const next = Object.fromEntries(Object.keys(found).map((k) => [k, true])) as Partial<Record<keyof TaskDraft, true>>
     setErrors(next)
     if (Object.keys(next).length) return
 
@@ -59,135 +67,111 @@ export function TaskPage() {
     try {
       // 저장 성공 후에만 기준이 바뀐다 (task.updated 이벤트로 반영)
       await saveTask(draft)
-      setSaved(true)
+      navigate('/monitor')
     } catch (e) {
       const { code, message } = describeError(e)
-      // VERSION_CONFLICT: 자동 재시도하지 않는다. 최신 기준이 위 '현재 기준'에 표시된다.
-      setSaveError(isStale(code) ? `${message} (${code}) — 다른 곳에서 기준이 바뀌었습니다. 현재 기준을 확인한 뒤 다시 저장하세요.` : `${message} (${code})`)
+      // VERSION_CONFLICT: 자동 재시도하지 않는다. 최신 기준이 폼에 다시 채워진다.
+      setSaveError(isStale(code) ? `${t.task.conflict} (${code})` : `${message} (${code})`)
     } finally {
       setSaving(false)
     }
   }
 
+  const err = (k: keyof TaskDraft) => (errors[k] ? <span className="error-text">{t.task.errors[k as keyof typeof t.task.errors]}</span> : null)
+
   return (
     <>
-      {!active && state.taskState.loaded && (
-        <Notice>
-          <b>오늘 작업을 먼저 등록하세요.</b>
-          <div className="small muted">교신을 등록한 기준과 비교하려면 내 배·대상 선박·터미널·선석이 필요합니다.</div>
-        </Notice>
-      )}
+      <h1>{active ? t.task.titleEdit : t.task.titleNew}</h1>
 
-      {active && (
-        <Card>
-          <div className="card-title-row">
-            <h2>현재 기준</h2>
-            <Badge tone="info">v{active.version}</Badge>
-          </div>
-          <dl className="kv">
-            <dt>내 배</dt>
-            <dd>{active.ownVessel}</dd>
-            <dt>대상 선박</dt>
-            <dd>{active.targetVessel}</dd>
-            <dt>장소</dt>
-            <dd>
-              {active.terminalId} {active.berthId}
-            </dd>
-            {active.note && (
-              <>
-                <dt>메모</dt>
-                <dd style={{ fontWeight: 400 }}>{active.note}</dd>
-              </>
-            )}
-            <dt>등록</dt>
-            <dd className="small">
-              {formatClock(active.createdAt)} · {active.sourceReviewEventId ? '교신 확인 후 반영' : '직접 등록'}
-            </dd>
-          </dl>
-        </Card>
-      )}
-
-      <Card>
-        <div className="card-title-row">
-          <h2>{active ? '기준 수정' : '작업 등록'}</h2>
-          {CATALOG.kind === 'demo' && <DemoBadge label="시연용 장소 목록" />}
+      <form onSubmit={onSubmit} noValidate className="form-grid">
+        <div className={`field ${errors.ownVessel ? 'invalid' : ''}`}>
+          <label htmlFor="own">{t.task.ownVessel}</label>
+          <input id="own" value={draft.ownVessel} onChange={(e) => set('ownVessel', e.target.value)} autoComplete="off" aria-invalid={!!errors.ownVessel} />
+          {err('ownVessel')}
         </div>
-        <form onSubmit={onSubmit} noValidate className="form-grid">
-          <div className={`field ${errors.ownVessel ? 'invalid' : ''}`}>
-            <label htmlFor="own">내 배</label>
-            <input id="own" value={draft.ownVessel} onChange={(e) => set('ownVessel', e.target.value)} placeholder="예: 해동호" autoComplete="off" aria-invalid={!!errors.ownVessel} />
-            {errors.ownVessel && <span className="error-text">{errors.ownVessel}</span>}
+        <div className={`field ${errors.targetVessel ? 'invalid' : ''}`}>
+          <label htmlFor="target">{t.task.targetVessel}</label>
+          <input id="target" value={draft.targetVessel} onChange={(e) => set('targetVessel', e.target.value)} autoComplete="off" aria-invalid={!!errors.targetVessel} />
+          {err('targetVessel')}
+        </div>
+
+        {(port || CATALOG.kind === 'demo') && (
+          <div className="row-divider">
+            <span>{t.task.port}</span>
+            <span className="status-strip">
+              {CATALOG.kind === 'demo' && <DemoBadge label={t.task.demoCatalog} />}
+              {port && <span className="chip" style={{ fontSize: 14, fontWeight: 600, padding: '4px 10px' }}>{port}</span>}
+            </span>
           </div>
-          <div className={`field ${errors.targetVessel ? 'invalid' : ''}`}>
-            <label htmlFor="target">대상 선박</label>
-            <input id="target" value={draft.targetVessel} onChange={(e) => set('targetVessel', e.target.value)} placeholder="예: A선박" autoComplete="off" aria-invalid={!!errors.targetVessel} />
-            {errors.targetVessel && <span className="error-text">{errors.targetVessel}</span>}
+        )}
+
+        <div className="field">
+          <span className="field-label" id="terminal-label">
+            {t.task.terminal}
+          </span>
+          <div className="choice-grid" role="group" aria-labelledby="terminal-label">
+            {CATALOG.terminals.map((x) => (
+              <Choice key={x.terminalId} tall selected={draft.terminalId === x.terminalId} onClick={() => set('terminalId', x.terminalId)} code={x.displayName} />
+            ))}
           </div>
-          <div className={`field ${errors.terminalId ? 'invalid' : ''}`}>
-            <label htmlFor="terminal">터미널</label>
-            <select id="terminal" value={draft.terminalId ?? ''} onChange={(e) => set('terminalId', e.target.value || null)} aria-invalid={!!errors.terminalId}>
-              <option value="">선택</option>
-              {CATALOG.terminals.map((t) => (
-                <option key={t.terminalId} value={t.terminalId}>
-                  {t.displayName}
-                </option>
+          {err('terminalId')}
+        </div>
+
+        <div className="field">
+          <span className="field-label" id="berth-label">
+            {terminal ? (
+              <>
+                <span className="mono">{terminal.displayName}</span> {t.task.berth}
+              </>
+            ) : (
+              t.task.berth
+            )}
+          </span>
+          {terminal ? (
+            <div className="choice-grid cols-4" role="group" aria-labelledby="berth-label">
+              {terminal.berths.map((b) => (
+                <Choice key={b.berthId} selected={draft.berthId === b.berthId} onClick={() => set('berthId', b.berthId)} code={b.label} />
               ))}
-            </select>
-            {errors.terminalId && <span className="error-text">{errors.terminalId}</span>}
-          </div>
-          <div className={`field ${errors.berthId ? 'invalid' : ''}`}>
-            <label htmlFor="berth">선석</label>
-            <select id="berth" value={draft.berthId ?? ''} onChange={(e) => set('berthId', e.target.value || null)} disabled={!terminal} aria-invalid={!!errors.berthId}>
-              <option value="">{terminal ? '선택' : '터미널 먼저 선택'}</option>
-              {terminal?.berths.map((b) => (
-                <option key={b.berthId} value={b.berthId}>
-                  {b.label}
-                </option>
-              ))}
-            </select>
-            {errors.berthId && <span className="error-text">{errors.berthId}</span>}
-          </div>
-          <div className="field full">
-            <label htmlFor="note">메모</label>
-            <textarea id="note" value={draft.note} onChange={(e) => set('note', e.target.value)} placeholder="작업 관련 메모 (선택)" />
-          </div>
-          {saveError && (
-            <div className="full">
-              <Notice tone="danger">저장하지 못했습니다. 기준은 바뀌지 않았습니다. — {saveError}</Notice>
             </div>
+          ) : (
+            <p className="small muted">{t.task.selectTerminalFirst}</p>
           )}
-          {saved && !saveError && (
-            <div className="full">
-              <Notice action={<button type="button" className="btn sm primary" onClick={() => navigate('/monitor')}>교신으로</button>}>
-                저장했습니다. 현재 기준은 v{active?.version}입니다.
-              </Notice>
-            </div>
-          )}
-          <div className="full">
-            <button type="submit" className="btn primary block" disabled={saving || !dirty}>
-              {saving ? '저장 중…' : active ? `새 버전(v${active.version + 1})으로 저장` : '작업 등록'}
-            </button>
-          </div>
-        </form>
-      </Card>
+          {err('berthId')}
+        </div>
+
+        <div className="field">
+          <label htmlFor="note">{t.task.note}</label>
+          <input id="note" value={draft.note} onChange={(e) => set('note', e.target.value)} placeholder={t.task.notePlaceholder} autoComplete="off" />
+        </div>
+
+        {saveError && <Notice tone="danger">{t.task.saveFailed(saveError)}</Notice>}
+
+        <button type="submit" className="btn primary lg block" disabled={saving}>
+          {saving ? t.task.saving : !dirty ? t.task.goMonitor : active ? t.task.saveVersion(active.version + 1) : t.task.saveAndGo}
+        </button>
+      </form>
 
       {history.length > 1 && (
-        <Card>
-          <h2>기준 변경 이력</h2>
-          <ul className="timeline">
+        <>
+          <h2>{t.task.history}</h2>
+          <div className="timeline-rail">
             {history.map((v) => (
-              <li key={v.version}>
-                <time>{formatClock(v.createdAt)}</time>
-                <div>
-                  <div className="t-title">
-                    v{v.version} · {v.terminalId} {v.berthId}
-                  </div>
-                  <div className="t-detail">{v.sourceReviewEventId ? '교신 확인 후 반영' : '직접 등록'}</div>
+              <Card key={v.version} className={v.version === active?.version ? '' : 'soft'}>
+                <StatusMark className="mark" shape="circle" />
+                <div className="utt-head">
+                  <span className="mono" style={{ fontWeight: 700 }}>
+                    v{v.version} · {placeText(v.terminalId, v.berthId)}
+                  </span>
+                  <span className="time">{formatClock(v.createdAt)}</span>
                 </div>
-              </li>
+                <p className="small muted">
+                  {v.targetVessel} · {v.sourceReviewEventId ? t.task.fromReview : t.task.manual}
+                  {v.version === active?.version ? ` · ${t.task.current}` : ''}
+                </p>
+              </Card>
             ))}
-          </ul>
-        </Card>
+          </div>
+        </>
       )}
     </>
   )

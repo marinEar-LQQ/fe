@@ -17,6 +17,8 @@ export const ko = {
     notMentioned: '언급 없음',
     unconfirmed: '미확정',
     checkNeeded: '확인 필요',
+
+    unsure: '불확실',
     settings: '설정',
     back: '뒤로',
   },
@@ -558,7 +560,7 @@ export const ko = {
   },
   prep: {
     seed: '처리한 작업 미리 쌓기',
-    seedHint: '팀 녹음으로 지난 작업 1개(확인·메모·저장 완료)와 지금 작업의 교신 2건(처리 완료)을 쌓습니다. ‘시연 데이터’로 표시되고 원음은 실제 녹음입니다.',
+    seedHint: '팀 녹음으로 지난 작업 1개(확인·메모·저장 완료)와 지금 작업의 교신(처리 완료 3건, 확인할 장소 차이 1건)을 쌓습니다. ‘시연 데이터’로 표시되고 원음은 실제 녹음입니다.',
     seeding: '쌓는 중… (10초 정도)',
     seeded: (n: number) => `녹음 ${n}개를 쌓았습니다. 교신 화면으로 이동합니다.`,
     seedFailed: (m: string) => `쌓지 못했습니다: ${m}`,

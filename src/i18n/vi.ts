@@ -13,6 +13,8 @@ export const vi: Messages = {
     notMentioned: 'Không nhắc đến',
     unconfirmed: 'Chưa xác định',
     checkNeeded: 'Cần kiểm tra',
+
+    unsure: 'Chưa chắc',
     settings: 'Cài đặt',
     back: 'Quay lại',
   },
@@ -554,7 +556,7 @@ export const vi: Messages = {
   },
   prep: {
     seed: 'Nạp sẵn công việc đã xử lý',
-    seedHint: 'Dùng bản ghi của nhóm để thêm một công việc trước (đã kiểm tra, ghi chú, đã lưu) và hai cuộc gọi đã xử lý ở công việc hiện tại. Được đánh dấu là dữ liệu demo; âm thanh là bản ghi thật.',
+    seedHint: 'Dùng bản ghi của nhóm để thêm một công việc trước (đã kiểm tra, ghi chú, đã lưu) và các cuộc gọi ở công việc hiện tại (đã xử lý và một chỗ khác vị trí chưa kiểm tra). Được đánh dấu là dữ liệu demo; âm thanh là bản ghi thật.',
     seeding: 'Đang nạp… (khoảng 10 giây)',
     seeded: (n: number) => `Đã nạp ${n} bản ghi. Mở màn hình cuộc gọi.`,
     seedFailed: (m: string) => `Không nạp được: ${m}`,

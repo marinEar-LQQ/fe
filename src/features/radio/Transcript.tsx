@@ -70,7 +70,8 @@ export function TranscriptView({ result, highlight = [] }: { result: AnalysisRes
 }
 
 /** 자막 아래: 인식 차이 개수 + 불확실 후보 전부 */
-export function TranscriptNotes({ result }: { result: AnalysisResult }) {
+/** soft: 재확인 목록에 들어가지 않는 교신(내 작업과 무관) — "확인 필요" 대신 "불확실"로 낮춰 적는다 */
+export function TranscriptNotes({ result, soft = false }: { result: AnalysisResult; soft?: boolean }) {
   const t = useT()
   const n = diffCount(result)
   if (n === 0 && result.uncertainties.length === 0) return null
@@ -79,7 +80,7 @@ export function TranscriptNotes({ result }: { result: AnalysisResult }) {
       {n > 0 && <span className="badge warn">{t.transcript.diffCount(n)}</span>}
       {result.uncertainties.length > 0 && (
         <span>
-          <b>{t.common.checkNeeded}:</b>{' '}
+          <b>{soft ? t.common.unsure : t.common.checkNeeded}:</b>{' '}
           {result.uncertainties.map((u, i) => (
             <span key={i}>
               {i > 0 && ' · '}

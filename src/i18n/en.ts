@@ -13,6 +13,8 @@ export const en: Messages = {
     notMentioned: 'Not mentioned',
     unconfirmed: 'Unconfirmed',
     checkNeeded: 'Check needed',
+
+    unsure: 'Uncertain',
     settings: 'Settings',
     back: 'Back',
   },
@@ -554,7 +556,7 @@ export const en: Messages = {
   },
   prep: {
     seed: 'Preload processed tasks',
-    seedHint: 'Uses team recordings to add one past task (checked, note, saved) and two processed calls on the current task. Marked as demo data; audio is the real recording.',
+    seedHint: 'Uses team recordings to add one past task (checked, note, saved) and calls on the current task (processed ones plus one place difference left to check). Marked as demo data; audio is the real recording.',
     seeding: 'Loading… (about 10 seconds)',
     seeded: (n: number) => `Loaded ${n} recordings. Opening radio calls.`,
     seedFailed: (m: string) => `Could not preload: ${m}`,

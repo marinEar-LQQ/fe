@@ -117,7 +117,7 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
       <p className="utt-text" lang="ko">
         <TranscriptView result={result} highlight={kind === 'difference' ? heardDiffValues(result) : []} />
       </p>
-      <TranscriptNotes result={result} />
+      <TranscriptNotes result={result} soft={!attention} />
       <EntityChips result={result} />
       <ResultFlags result={result} />
 
@@ -138,8 +138,8 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
             <IconPlay />
             {player.playing === utterance.utteranceId ? '■' : t.report.listenRaw}
           </button>
-          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
-            {t.card.recheck}
+          <Link className={`btn sm ${review === 'unreviewed' ? 'alert' : ''}`} to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
+            {review === 'unreviewed' ? t.card.recheck : t.card.details}
           </Link>
         </div>
       )}
@@ -150,8 +150,8 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
             <IconPlay />
             {player.playing === utterance.utteranceId ? '■' : t.report.listenRaw}
           </button>
-          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
-            {t.card.compare}
+          <Link className={`btn sm ${review === 'unreviewed' ? 'alert' : ''}`} to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
+            {review === 'unreviewed' ? t.card.compare : t.card.details}
           </Link>
         </div>
       )}

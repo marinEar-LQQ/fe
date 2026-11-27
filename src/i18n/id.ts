@@ -13,6 +13,8 @@ export const id: Messages = {
     notMentioned: 'Tidak disebut',
     unconfirmed: 'Belum pasti',
     checkNeeded: 'Perlu diperiksa',
+
+    unsure: 'Belum pasti',
     settings: 'Pengaturan',
     back: 'Kembali',
   },
@@ -554,7 +556,7 @@ export const id: Messages = {
   },
   prep: {
     seed: 'Muat tugas yang sudah diproses',
-    seedHint: 'Memakai rekaman tim untuk menambah satu tugas sebelumnya (dicek, catatan, tersimpan) dan dua panggilan yang sudah diproses di tugas sekarang. Ditandai data demo; suara adalah rekaman asli.',
+    seedHint: 'Memakai rekaman tim untuk menambah satu tugas sebelumnya (dicek, catatan, tersimpan) dan panggilan di tugas sekarang (yang sudah diproses dan satu beda lokasi yang belum dicek). Ditandai data demo; suara adalah rekaman asli.',
     seeding: 'Memuat… (sekitar 10 detik)',
     seeded: (n: number) => `${n} rekaman dimuat. Membuka panggilan radio.`,
     seedFailed: (m: string) => `Gagal memuat: ${m}`,

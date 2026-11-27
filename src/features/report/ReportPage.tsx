@@ -118,6 +118,8 @@ function PastLogs({ shownId, activeId }: { shownId: string | null; activeId: str
       setRows(
         logs
           .filter((l): l is TaskLog => l !== null)
+          // 등록만 하고 교신이 없는 작업은 지난 일지에 보이지 않게 (지금 작업은 예외)
+          .filter((l) => l.counts.utterances > 0 || l.task.taskId === activeId)
           .map((log) => ({
             log,
             current: log.versions.find((v) => v.version === log.task.activeVersion),
@@ -128,7 +130,7 @@ function PastLogs({ shownId, activeId }: { shownId: string | null; activeId: str
     return () => {
       alive = false
     }
-  }, [engine, shownId])
+  }, [engine, shownId, activeId])
 
   const others = (rows ?? []).filter((r) => r.log.task.taskId !== shownId)
   return (

@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { restoreActiveTask } from './restore'
 import { applyEvent, initialState, reducer, type AppState } from '../app/state'
 import { demoControls, findDemoTask } from './demo'
-import { buildTimeline, displayTranscript } from './report'
+import { AUDIO_FLAG_LABEL, REASON_LABEL } from '../contracts/labels'
+import { buildTimeline, correctionInfo, displayTranscript } from './report'
 
 /**
  * marinear-engine 의 MockEngineClient(실제 EngineCore·규칙·IndexedDB + 시연 ASR)로
@@ -109,6 +110,27 @@ describe('MockEngineClient scenario → UI state', () => {
     expect(after.task.activeVersion).toBe(2)
     expect(after.versions[1].sourceReviewEventId).toBe(applied.eventId)
     expect(after.counts.applied).toBe(1)
+  })
+
+  it('exposes diffs, correction info and labels for every reason code / audio flag the engine emits', async () => {
+    const { engine, demo } = await setup()
+    const task = await demo.ensureDemoTask()
+    await demo.playScenario(task.taskId)
+    const log = await engine.getTaskLog(task.taskId)
+    const results = log.utterances.map((u) => u.results[u.results.length - 1])
+
+    for (const r of results) {
+      for (const code of r.comparison.reasonCodes) expect(REASON_LABEL[code], code).toBeTruthy()
+      for (const f of r.audioFlags) expect(AUDIO_FLAG_LABEL[f], f).toBeTruthy()
+    }
+    // 레이블 표는 ReasonCode 16개 전부 (Record<ReasonCode, string> 으로 타입 강제 + 개수 확인)
+    expect(Object.keys(REASON_LABEL)).toHaveLength(16)
+
+    const caseA = results.find((r) => r.comparison.kind === 'difference')!
+    expect(caseA.comparison.diffs).toContainEqual({ field: 'terminalId', taskValue: 'PNIT', heardValue: 'HPNT' })
+
+    const correction = results.map(correctionInfo).find((c) => c && c.negated.length > 0)
+    expect(correction?.negated).toContain('HPNT')
   })
 
   it('analyzes a fixture WAV through the file path (analyzePcm) with progress stages and r1 → r2', async () => {

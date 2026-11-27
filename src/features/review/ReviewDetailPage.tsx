@@ -1,12 +1,13 @@
-import type { AnalysisResult, AudioClip, AudioVariant, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
+import type { AnalysisResult, AudioClip, AudioVariant, FieldDiff, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal } from '../../contracts/catalog'
-import { COMPARISON_HINT, REASON_LABEL, formatClock, formatMs } from '../../contracts/labels'
+import { AUDIO_FLAG_LABEL, COMPARISON_HINT, DIFF_FIELD_LABEL, REASON_LABEL, formatClock, formatMs } from '../../contracts/labels'
+import { correctionInfo } from '../../engine/report'
 import { Badge, Card, ComparisonBadge, DemoBadge, EmptyState, Notice, ReviewBadge } from '../../ui/components'
-import { TranscriptText } from '../radio/UtteranceCard'
+import { ResultFlags, TranscriptText } from '../radio/UtteranceCard'
 import { useUtterance } from './useUtterance'
 
 const CLIP_REASON: Record<Exclude<AudioClip['status'], 'available'>, string> = {
@@ -36,36 +37,71 @@ function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId
   const { engine } = useApp()
   const [msg, setMsg] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
+  const [range, setRange] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
 
   useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
 
   async function play() {
     let clip: AudioClip
+    setBusy(true)
     try {
       clip = await engine.getAudioClip(utteranceId, variant)
     } catch (e) {
       return setMsg(`음성을 불러오지 못했습니다: ${describeError(e).message}`)
+    } finally {
+      setBusy(false)
     }
-    if (clip.status !== 'available' || !clip.blob) return setMsg(CLIP_REASON[clip.status === 'available' ? 'missing' : clip.status])
-    const u = URL.createObjectURL(clip.blob)
-    setUrl(u)
-    setMsg(wordAligned ? null : '단어 구간이 검증되지 않아 전체 발화를 재생합니다.')
+    if (clip.status !== 'available' || !clip.blob) {
+      setUrl(null)
+      setRange(null)
+      return setMsg(CLIP_REASON[clip.status === 'available' ? 'missing' : clip.status])
+    }
+    // 같은 버튼을 다시 누르면 이전 Blob URL 은 effect 정리에서 해제된다
+    setUrl(URL.createObjectURL(clip.blob))
+    setRange(`${formatMs(clip.startMs)}–${formatMs(clip.endMs)}`)
+    setMsg(wordAligned ? null : '단어 위치가 검증되지 않아 발화 전체를 재생합니다. 핵심 단어 구간만 따로 재생할 수 없습니다.')
     setTimeout(() => audioRef.current?.play().catch(() => setMsg('재생을 시작하지 못했습니다.')), 0)
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <button className="btn" onClick={() => void play()}>
+      <button className="btn" onClick={() => void play()} disabled={busy}>
         ▶ {label}
       </button>
       {url && <audio ref={audioRef} src={url} controls style={{ width: '100%' }} />}
+      {url && range && <span className="small mono muted">재생 구간 {range}</span>}
       {msg && <span className="small muted">{msg}</span>}
     </div>
   )
 }
 
+const AUDIO_FLAG_HINT: Record<AnalysisResult['audioFlags'][number], string> = {
+  SILENCE: '말소리가 거의 없어 인식 결과를 믿기 어렵습니다.',
+  CLIPPING: '입력 음량이 너무 커서 소리가 깨졌습니다. 변환 장치 음량을 낮추세요.',
+  AUDIO_GAP: '이 발화 중 수신이 끊긴 구간이 있어 일부 단어가 빠졌을 수 있습니다.',
+  TRUNCATED: '발화가 길어 일부만 분석했습니다.',
+}
+
 const UNC_FIELD: Record<AnalysisResult['uncertainties'][number]['field'], string> = { vessel: '선박', terminalId: '터미널', berthId: '선석', number: '숫자' }
+
+/** 기준값/교신값의 터미널·선석을 나눠 그리고, diffs 에 있는 필드는 강조한다 */
+function PlaceValue({ terminal, berth, diffs, side }: { terminal: string; berth: string; diffs: FieldDiff[]; side: 'task' | 'heard' }) {
+  const mark = (field: FieldDiff['field'], text: string) =>
+    diffs.some((d) => d.field === field) ? (
+      <mark className="diff-mark" title={side === 'task' ? '기준과 교신이 다른 값' : '기준과 다르게 들린 값'}>
+        {text}
+      </mark>
+    ) : (
+      <span>{text}</span>
+    )
+  return (
+    <>
+      {mark('terminalId', terminal)} {mark('berthId', berth)}
+    </>
+  )
+}
 
 function placeOf(result: AnalysisResult): { terminal: string; berth: string; uncertain: boolean } {
   const tu = result.uncertainties.find((u) => u.field === 'terminalId')
@@ -103,6 +139,8 @@ export function ReviewDetailPage() {
   const active = state.taskState.active
   const snapshot = versions.find((v) => v.version === utterance.taskVersion) ?? (active?.version === utterance.taskVersion ? active : undefined)
   const place = placeOf(result)
+  const diffs = result.comparison.diffs
+  const correction = correctionInfo(result)
   const reviewStatus: ReviewState = state.reviewState[utterance.utteranceId] ?? storedReview
   // 원음 교차 검사가 끝나지 않은(pending/unavailable) 결과로는 반영할 수 없다 (엔진: UNCERTAIN_VALUE)
   const pending = result.crossCheck === 'pending'
@@ -171,6 +209,7 @@ export function ReviewDetailPage() {
         <div className="utt-text" lang="ko">
           <TranscriptText result={result} />
         </div>
+        <ResultFlags result={result} />
         <div className="small muted">
           {COMPARISON_HINT[kind]}
           {result.comparison.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => REASON_LABEL[r]).join(', ')}` : ''}
@@ -183,17 +222,42 @@ export function ReviewDetailPage() {
         <div className="compare-grid">
           <div className="compare-cell">
             <div className="label">등록 기준 (발화 당시 v{utterance.taskVersion ?? '-'})</div>
-            <div className="value">{snapshot ? `${snapshot.terminalId} ${snapshot.berthId}` : '등록 없음'}</div>
+            <div className="value">{snapshot ? <PlaceValue terminal={snapshot.terminalId ?? '미정'} berth={snapshot.berthId ?? ''} diffs={diffs} side="task" /> : '등록 없음'}</div>
             <div className="small muted">{snapshot ? `${snapshot.ownVessel} → ${snapshot.targetVessel}` : ''}</div>
           </div>
           <div className={`compare-cell ${kind === 'difference' ? 'diff' : place.uncertain ? 'amb' : ''}`}>
             <div className="label">교신 언급</div>
             <div className="value">
-              {place.terminal} {place.berth !== '언급 없음' ? place.berth : ''}
+              <PlaceValue terminal={place.terminal} berth={place.berth !== '언급 없음' ? place.berth : ''} diffs={diffs} side="heard" />
             </div>
             <div className="small muted">선박: {result.entities.vessel ?? '미확정'}</div>
           </div>
         </div>
+        {diffs.length > 0 && (
+          <dl className="kv" style={{ marginTop: 12 }} aria-label="기준과 다른 항목">
+            {diffs.map((d) => (
+              <div key={d.field} style={{ display: 'contents' }}>
+                <dt>{DIFF_FIELD_LABEL[d.field]}</dt>
+                <dd>
+                  기준 <b>{d.taskValue ?? '없음'}</b> → 교신 <mark className="diff-mark">{d.heardValue ?? '언급 없음'}</mark>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+        {correction && (
+          <p className="small" style={{ marginBottom: 0 }}>
+            {correction.unclear ? (
+              <>
+                <b>정정 불명확</b> — 정정 내용을 확실히 알 수 없어 자동으로 판단하지 않았습니다. 기존 무전기로 다시 확인하세요.
+              </>
+            ) : (
+              <>
+                <b>정정 발화</b> — <s>{correction.negated.join(', ')}</s> 는 취소된 표현이라 판정에 쓰지 않았습니다.
+              </>
+            )}
+          </p>
+        )}
         {active && snapshot && active.version !== snapshot.version && (
           <p className="small muted" style={{ marginBottom: 0 }}>
             현재 기준은 v{active.version} ({active.terminalId} {active.berthId})입니다. 이 교신은 발화 당시 기준과 비교했습니다.
@@ -219,6 +283,15 @@ export function ReviewDetailPage() {
             <br />
             <span className="muted">두 결과가 같아도 정답을 보장하지 않습니다. 필요하면 기존 무전기로 다시 물어보세요.</span>
           </p>
+        )}
+        {result.audioFlags.length > 0 && (
+          <ul className="small" style={{ margin: '8px 0 0', paddingLeft: 18 }} aria-label="입력 품질">
+            {result.audioFlags.map((f) => (
+              <li key={f}>
+                {AUDIO_FLAG_LABEL[f]} — {AUDIO_FLAG_HINT[f]}
+              </li>
+            ))}
+          </ul>
         )}
         <div className="compare-grid" style={{ marginTop: 12 }}>
           <AudioButton utteranceId={utterance.utteranceId} variant="raw" label="원음 듣기" wordAligned={Boolean(result.rawTranscript?.wordAligned)} />

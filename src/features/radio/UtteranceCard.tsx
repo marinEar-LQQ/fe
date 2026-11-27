@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { translationKey, type MessageEntry } from '../../app/state'
 import { langLabel } from '../../contracts/lang'
-import { COMPARISON_HINT, LANG_AVAILABILITY_LABEL, REASON_LABEL, STAGE_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
+import { AUDIO_FLAG_LABEL, COMPARISON_HINT, LANG_AVAILABILITY_LABEL, REASON_LABEL, STAGE_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
+import { correctionInfo } from '../../engine/report'
 import { Badge, ComparisonBadge, DemoBadge, ReviewBadge } from '../../ui/components'
 
 /** 불확실 값은 [A / B] 로 강조해서 보여준다 */
@@ -21,6 +22,27 @@ export function TranscriptText({ result }: { result: AnalysisResult }) {
       </span>
       {rest.join(hit)}
     </>
+  )
+}
+
+/** 정정 발화·입력 품질(audioFlags)을 색상이 아닌 텍스트 라벨로 표시 */
+export function ResultFlags({ result }: { result: AnalysisResult }) {
+  const correction = correctionInfo(result)
+  if (!correction && result.audioFlags.length === 0) return null
+  return (
+    <div className="status-strip" aria-label="정정·음질 표시">
+      {correction &&
+        (correction.unclear ? (
+          <Badge tone="warn" title="정정 내용이 불명확해 자동으로 판단하지 않았습니다">정정 불명확</Badge>
+        ) : (
+          <Badge tone="info" title="정정 전 표현은 판정에 쓰지 않았습니다">정정 발화 · {correction.negated.join(', ')} 취소</Badge>
+        ))}
+      {result.audioFlags.map((f) => (
+        <Badge key={f} tone="warn">
+          {AUDIO_FLAG_LABEL[f]}
+        </Badge>
+      ))}
+    </div>
   )
 }
 
@@ -73,6 +95,7 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
       <div className="utt-text" lang="ko">
         <TranscriptText result={result} />
       </div>
+      <ResultFlags result={result} />
 
       {(kind !== 'match' || reasons.length > 0) && (
         <div className="small muted">

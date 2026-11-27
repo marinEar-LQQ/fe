@@ -18,6 +18,16 @@ export function displayTranscript(result: AnalysisResult): string {
   return text
 }
 
+/**
+ * 정정 발화 정보. "HPNT 말고 PNIT" 처럼 부정(negated)된 후보가 있거나 CORRECTION_UNCLEAR 이면 반환.
+ * negated: 정정 전(취소된) 표현, unclear: 정정 내용이 불명확해 엔진이 판단하지 않음
+ */
+export function correctionInfo(result: AnalysisResult): { negated: string[]; unclear: boolean } | null {
+  const negated = [...new Set(result.candidates.filter((c) => c.negated && (c.field === 'terminal' || c.field === 'berth' || c.field === 'vessel')).map((c) => c.surface))]
+  const unclear = result.comparison.reasonCodes.includes('CORRECTION_UNCLEAR')
+  return negated.length || unclear ? { negated, unclear } : null
+}
+
 export type TimelineItem =
   | { kind: 'task'; at: string; title: string; detail: string }
   | { kind: 'utterance'; at: string; title: string; detail: string; utteranceId: string }

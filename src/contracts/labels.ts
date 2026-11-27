@@ -1,4 +1,4 @@
-import type { AnalysisStage, AssetStatus, ComparisonKind, LangAvailability, ReasonCode, ReviewState, TranslationStatus } from 'marinear-engine'
+import type { AnalysisStage, AssetStatus, AudioFlag, ComparisonKind, FieldDiff, LangAvailability, ReasonCode, ReviewState, TranslationStatus } from 'marinear-engine'
 
 /**
  * 화면용 라벨. 타입·계약은 marinear-engine 이 원본이고 여기엔 표시 문구만 둔다.
@@ -37,6 +37,19 @@ export const REASON_LABEL: Record<ReasonCode, string> = {
   NO_TASK: '등록된 작업 없음',
   CROSS_CHECK_PENDING: '원음 교차 검사 중',
   AUDIO_QUALITY: '음질 문제',
+}
+
+/** 입력 품질 근거 (Utterance/AnalysisResult.audioFlags) */
+export const AUDIO_FLAG_LABEL: Record<AudioFlag, string> = {
+  SILENCE: '무음 구간 포함',
+  CLIPPING: '입력 포화 · 소리 깨짐',
+  AUDIO_GAP: '수신 누락 구간 포함',
+  TRUNCATED: '발화가 잘림 (최대 길이 초과)',
+}
+
+export const DIFF_FIELD_LABEL: Record<FieldDiff['field'], string> = {
+  terminalId: '터미널',
+  berthId: '선석',
 }
 
 export const REVIEW_LABEL: Record<ReviewState, string> = {

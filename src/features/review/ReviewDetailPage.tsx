@@ -1,25 +1,23 @@
-import type { AnalysisResult, AudioClip, AudioVariant, FieldDiff, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
+import type { AnalysisResult, AudioClip, AudioVariant, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal } from '../../contracts/catalog'
-import { AUDIO_FLAG_LABEL, COMPARISON_HINT, DIFF_FIELD_LABEL, formatClock, formatMs } from '../../contracts/labels'
-import { correctionInfo } from '../../engine/report'
-import { Badge, Card, ComparisonBadge, DemoBadge, EmptyState, Notice, ReviewBadge } from '../../ui/components'
-import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
-import { ResultFlags } from '../radio/UtteranceCard'
-import { formatAlternatives, formatReason, UNCERTAIN_FIELD_LABEL } from '../../engine/transcript'
+import { formatClock, formatMs } from '../../contracts/labels'
 import { extraEntities } from '../../engine/entities'
+import { correctionInfo } from '../../engine/report'
+import { formatAlternatives, formatReason, headline } from '../../engine/transcript'
+import { useT } from '../../i18n'
+import { Card, Choice, DemoBadge, EmptyState, IconCheck, IconPlay, KIND_MARK, Notice, PageHead, ReviewBadge, StatusLabel, StatusMark } from '../../ui/components'
+import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
+import { EntityChips, ResultFlags } from '../radio/UtteranceCard'
 import { useUtterance } from './useUtterance'
 
-const CLIP_REASON: Record<Exclude<AudioClip['status'], 'available'>, string> = {
-  deleted: '삭제된 음성이라 재생할 수 없습니다.',
-  missing: '저장된 음성을 찾을 수 없습니다.',
-}
-
+/** 원음/완화음 구간 재생 (getAudioClip). 단어 위치가 검증되지 않았으면 발화 전체를 재생한다고 알린다 */
 function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId: string; variant: AudioVariant; label: string; wordAligned: boolean }) {
   const { engine } = useApp()
+  const t = useT()
   const [msg, setMsg] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
   const [range, setRange] = useState<string | null>(null)
@@ -34,71 +32,63 @@ function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId
     try {
       clip = await engine.getAudioClip(utteranceId, variant)
     } catch (e) {
-      return setMsg(`음성을 불러오지 못했습니다: ${describeError(e).message}`)
+      return setMsg(t.clip.failed(describeError(e).message))
     } finally {
       setBusy(false)
     }
     if (clip.status !== 'available' || !clip.blob) {
       setUrl(null)
       setRange(null)
-      return setMsg(CLIP_REASON[clip.status === 'available' ? 'missing' : clip.status])
+      return setMsg(t.clip[clip.status === 'available' ? 'missing' : clip.status])
     }
-    // 같은 버튼을 다시 누르면 이전 Blob URL 은 effect 정리에서 해제된다
     setUrl(URL.createObjectURL(clip.blob))
     setRange(`${formatMs(clip.startMs)}–${formatMs(clip.endMs)}`)
-    setMsg(wordAligned ? null : '단어 위치가 검증되지 않아 발화 전체를 재생합니다. 핵심 단어 구간만 따로 재생할 수 없습니다.')
-    setTimeout(() => audioRef.current?.play().catch(() => setMsg('재생을 시작하지 못했습니다.')), 0)
+    setMsg(wordAligned ? null : t.reviewDetail.wholeUtterance)
+    setTimeout(() => audioRef.current?.play().catch(() => setMsg(t.reviewDetail.playFailed)), 0)
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <button className="btn" onClick={() => void play()} disabled={busy}>
-        ▶ {label}
+    <div className="btn-stack">
+      <button type="button" className="btn" onClick={() => void play()} disabled={busy}>
+        <IconPlay />
+        {label}
       </button>
       {url && <audio ref={audioRef} src={url} controls style={{ width: '100%' }} />}
-      {url && range && <span className="small mono muted">재생 구간 {range}</span>}
+      {url && range && <span className="time">{t.reviewDetail.range(range)}</span>}
       {msg && <span className="small muted">{msg}</span>}
     </div>
   )
 }
 
-const AUDIO_FLAG_HINT: Record<AnalysisResult['audioFlags'][number], string> = {
-  SILENCE: '말소리가 거의 없어 인식 결과를 믿기 어렵습니다.',
-  CLIPPING: '입력 음량이 너무 커서 소리가 깨졌습니다. 변환 장치 음량을 낮추세요.',
-  AUDIO_GAP: '이 발화 중 수신이 끊긴 구간이 있어 일부 단어가 빠졌을 수 있습니다.',
-  TRUNCATED: '발화가 길어 일부만 분석했습니다.',
+const PLACE_REASONS = ['MULTIPLE_CANDIDATES', 'TERMINAL_MISSING', 'BERTH_MISSING', 'CATALOG_UNKNOWN', 'BERTH_NOT_IN_TERMINAL'] as const
+const ASR_REASONS = ['ASR_DISAGREEMENT', 'ASR_CONFUSABLE'] as const
+
+function terminalName(id: string | null | undefined): string | null {
+  if (!id) return null
+  return findTerminal(CATALOG, id)?.displayName ?? id
 }
 
-/** 기준값/교신값의 터미널·선석을 나눠 그리고, diffs 에 있는 필드는 강조한다 */
-function PlaceValue({ terminal, berth, diffs, side }: { terminal: string; berth: string; diffs: FieldDiff[]; side: 'task' | 'heard' }) {
-  const mark = (field: FieldDiff['field'], text: string) =>
-    diffs.some((d) => d.field === field) ? (
-      <mark className="diff-mark" title={side === 'task' ? '기준과 교신이 다른 값' : '기준과 다르게 들린 값'}>
-        {text}
-      </mark>
-    ) : (
-      <span>{text}</span>
-    )
-  return (
-    <>
-      {mark('terminalId', terminal)} {mark('berthId', berth)}
-    </>
-  )
+function berthName(terminalId: string | null | undefined, berthId: string | null | undefined): string | null {
+  if (!berthId) return null
+  return findTerminal(CATALOG, terminalId)?.berths.find((b) => b.berthId === berthId)?.label ?? berthId
 }
 
-function placeOf(result: AnalysisResult): { terminal: string; berth: string; uncertain: boolean } {
+/** 교신에서 들린 장소. 불확실하면 [A / B] (확정값처럼 보이지 않게) */
+function heardPlace(result: AnalysisResult): { terminal: string | null; berth: string | null; uncertain: boolean } {
   const tu = result.uncertainties.find((u) => u.field === 'terminalId')
   const bu = result.uncertainties.find((u) => u.field === 'berthId')
   return {
-    terminal: tu ? formatAlternatives(tu) : (result.entities.terminalId ?? '언급 없음'),
-    berth: bu ? formatAlternatives(bu) : (result.entities.berthId ?? '언급 없음'),
+    terminal: tu ? formatAlternatives(tu) : terminalName(result.entities.terminalId),
+    berth: bu ? formatAlternatives(bu) : berthName(result.entities.terminalId, result.entities.berthId),
     uncertain: Boolean(tu || bu || !result.entities.terminalId),
   }
 }
 
+/** 03/04 재확인 상세 — 같은 화면에서 판정에 따라 장소 비교(03)·원음/완화음 비교(04) 칸을 보인다 (둘 다 해당하면 둘 다) */
 export function ReviewDetailPage() {
   const { id } = useParams()
   const { state, review } = useApp()
+  const t = useT()
   const { entry, versions, events, storedReview, loading, loadError, reload } = useUtterance(id)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -108,36 +98,68 @@ export function ReviewDetailPage() {
   const requestIdRef = useRef<{ key: string; id: string } | null>(null)
   const [confirmed, setConfirmed] = useState(false)
 
-  if (loading && !entry) return <EmptyState title="불러오는 중…" />
-  if (loadError && !entry) return <Notice tone="danger">기록을 불러오지 못했습니다: {loadError}</Notice>
+  const back = { to: '/monitor', label: t.nav.monitor }
+  if (loading && !entry) return <EmptyState title={t.common.loading} />
+  if (loadError && !entry) return <Notice tone="danger">{t.reviewDetail.loadFailed(loadError)}</Notice>
   if (!entry || !entry.result)
     return (
-      <EmptyState title="교신을 찾을 수 없습니다" action={<Link className="btn" to="/reviews">재확인 목록</Link>}>
-        분석이 끝나지 않았거나 다른 작업의 기록입니다.
-      </EmptyState>
+      <>
+        <PageHead back={back} title={t.reviewDetail.notFound} />
+        <EmptyState
+          title={t.reviewDetail.notFound}
+          action={
+            <Link className="btn" to="/reviews">
+              {t.reviewList.title}
+            </Link>
+          }
+        >
+          {t.reviewDetail.notFoundHint}
+        </EmptyState>
+      </>
     )
 
   const { utterance, result } = entry
   const kind = result.comparison.kind
+  const mark = KIND_MARK[kind]
+  const reasons = result.comparison.reasonCodes
   const active = state.taskState.active
   const snapshot = versions.find((v) => v.version === utterance.taskVersion) ?? (active?.version === utterance.taskVersion ? active : undefined)
-  const place = placeOf(result)
+  const heard = heardPlace(result)
   const diffs = result.comparison.diffs
-  const extras = extraEntities(result.entities)
+  const terminalDiffers = diffs.some((d) => d.field === 'terminalId')
+  const berthDiffers = diffs.some((d) => d.field === 'berthId')
+  const extras = extraEntities(result.entities, t)
   const correction = correctionInfo(result)
   const reviewStatus: ReviewState = state.reviewState[utterance.utteranceId] ?? storedReview
-  // 원음 교차 검사가 끝나지 않은(pending/unavailable) 결과로는 반영할 수 없다 (엔진: UNCERTAIN_VALUE)
+  const diffWords = result.transcriptDiff?.filter((d) => d.op !== 'same').length ?? 0
+
+  // 어떤 칸을 보일지: 장소 비교(03) / 원음·완화음 비교(04)
+  const showRecheck = diffWords > 0 || reasons.some((r) => (ASR_REASONS as readonly string[]).includes(r))
+  const showCompare = kind !== 'ambiguous' || diffs.length > 0 || reasons.some((r) => (PLACE_REASONS as readonly string[]).includes(r)) || !showRecheck
+
+  // 반영 규칙: 원음 교차 검사가 끝난 결과만 (엔진: UNCERTAIN_VALUE). 불확실 후보가 있으면 기본 반영값 없음
   const pending = result.crossCheck === 'pending'
   const notComplete = result.crossCheck !== 'complete'
-  // 불확실 후보가 하나라도 있으면 기본 반영값을 만들지 않는다 (사용자가 직접 선택해야 함)
   const hasUncertainty = result.uncertainties.length > 0
-  const clearDifference = kind === 'difference' && !place.uncertain && !hasUncertainty
+  const clearDifference = kind === 'difference' && !heard.uncertain && !hasUncertainty
   const effectivePatch: TaskPatch | null = manual ? patch : clearDifference ? { terminalId: result.entities.terminalId!, berthId: result.entities.berthId } : null
   const patchValid = Boolean(effectivePatch?.terminalId && effectivePatch.berthId)
   const canApply = !notComplete && confirmed && patchValid && Boolean(active) && reviewStatus !== 'applied'
-  const diffWords = result.transcriptDiff?.filter((d) => d.op !== 'same').length ?? 0
   const manualTerminal = findTerminal(CATALOG, patch.terminalId)
   const expectedTaskVersion = active?.version ?? utterance.taskVersion
+
+  // 제목: 장소 차이 / "A인가요, B인가요?" / 일반
+  const terminalAlts = result.uncertainties.find((u) => u.field === 'terminalId')?.alternatives ?? []
+  const title =
+    kind === 'difference'
+      ? t.reviewDetail.titleDifference
+      : kind === 'ambiguous' && terminalAlts.length >= 2
+        ? t.reviewDetail.titleChoice(terminalAlts[0]!, terminalAlts[1]!)
+        : kind === 'ambiguous' && terminalAlts.length === 1
+          ? t.reviewDetail.titleConfirm(terminalAlts[0]!)
+          : kind === 'ambiguous'
+            ? t.reviewDetail.titleAmbiguous
+            : t.reviewDetail.titleOther
 
   /** 멱등 키: 같은 명령(행동·revision·기준·값)을 다시 보내면 같은 requestId 를 쓴다 */
   function requestIdFor(action: ReviewAction, p: TaskPatch | undefined): string {
@@ -161,13 +183,13 @@ export function ReviewDetailPage() {
         confirmedByUser: action === 'apply' ? confirmed : true,
         ...(p ? { patch: p } : {}),
       })
-      setDone(action === 'apply' ? `작업 기준을 v${ev.taskVersionAfter}로 반영했습니다. 무전 송신이나 실제 작업 승인과는 별개입니다.` : action === 'dismiss' ? '관련 없음으로 표시했습니다. 원문과 분석 결과는 보존됩니다.' : '확인 표시를 남겼습니다. 작업 기준은 바뀌지 않았습니다.')
+      setDone(action === 'apply' ? t.reviewDetail.doneApply(ev.taskVersionAfter) : action === 'dismiss' ? t.reviewDetail.doneDismiss : t.reviewDetail.doneReview)
       setManual(false)
       setConfirmed(false)
     } catch (e) {
       const { code, message } = describeError(e)
       // VERSION_CONFLICT / RESULT_STALE: 자동 재시도하지 않고 최신 기준·결과를 다시 불러와 보여준다
-      setError(isStale(code) ? `${message} (${code}) — 최신 기준과 분석 결과를 다시 불러왔습니다. 내용을 확인한 뒤 다시 선택하세요.` : `${message} (${code})`)
+      setError(isStale(code) ? `${message} (${code}) — ${t.reviewDetail.stale}` : `${message} (${code})`)
       if (isStale(code)) reload()
       setConfirmed(false)
     } finally {
@@ -175,36 +197,207 @@ export function ReviewDetailPage() {
     }
   }
 
+  const confirmBox = (
+    <label className="check-row">
+      <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} disabled={notComplete || !patchValid} />
+      {t.reviewDetail.confirmCheck}
+    </label>
+  )
+  const applyButton = (variant: 'primary' | 'secondary') => (
+    <button type="button" className={`btn block ${variant === 'primary' ? 'primary lg' : 'md'}`} disabled={busy || !canApply} onClick={() => void act('apply')}>
+      {active ? t.reviewDetail.applyVersion(active.version, active.version + 1) : t.reviewDetail.apply}
+    </button>
+  )
+  const applyBlockers = (
+    <>
+      {pending && <Notice tone="warn">{t.reviewDetail.pendingBlock}</Notice>}
+      {!pending && notComplete && <Notice tone="warn">{t.reviewDetail.unavailableBlock}</Notice>}
+      {!active && <Notice tone="warn">{t.reviewDetail.noTaskBlock}</Notice>}
+    </>
+  )
+  const manualPicker = (
+    <div className="form-grid">
+      <div className="field">
+        <span className="field-label">{t.task.terminal}</span>
+        <div className="choice-grid">
+          {CATALOG.terminals.map((x) => (
+            <Choice key={x.terminalId} selected={patch.terminalId === x.terminalId} onClick={() => setPatch({ terminalId: x.terminalId, berthId: null })} code={x.displayName} />
+          ))}
+        </div>
+      </div>
+      {manualTerminal && (
+        <div className="field">
+          <span className="field-label">
+            <span className="mono">{manualTerminal.displayName}</span> {t.task.berth}
+          </span>
+          <div className="choice-grid cols-4">
+            {manualTerminal.berths.map((b) => (
+              <Choice key={b.berthId} selected={patch.berthId === b.berthId} onClick={() => setPatch((p) => ({ ...p, berthId: b.berthId }))} code={b.label} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <>
-      <Link to="/reviews" className="small">
-        ← 재확인 목록
-      </Link>
+      <PageHead
+        back={back}
+        eyebrow={
+          <StatusLabel tone={mark.tone} mark={mark.shape === 'circle' ? undefined : mark.shape}>
+            {kind === 'ambiguous' ? t.reviewDetail.eyebrowRecheck : headline(result, t)}
+          </StatusLabel>
+        }
+        title={title}
+      />
 
-      <Card className={`utt kind-${kind}`}>
-        <div className="utt-meta">
-          <span className="mono">{formatMs(utterance.startMs)}</span>
-          <ComparisonBadge kind={kind} />
-          <ReviewBadge status={reviewStatus} />
-          {entry.fixture && <DemoBadge />}
-          <span className="small" style={{ marginLeft: 'auto' }}>
-            r{result.revision}
+      <div className="status-strip">
+        <ReviewBadge status={reviewStatus} />
+        {pending && <span className="badge info">{t.card.provisional}</span>}
+        {entry.fixture && <DemoBadge />}
+        <span className="chip">r{result.revision}</span>
+      </div>
+
+      {/* 03 장소 비교 */}
+      {showCompare && (
+        <>
+          <section className="card compare" aria-label={t.reviewDetail.compareLabel}>
+            <div className="compare-grid">
+              <div className="compare-cell">
+                <span className="label">{t.reviewDetail.registered(utterance.taskVersion)}</span>
+                <span className="value">{terminalName(snapshot?.terminalId) ?? t.common.none}</span>
+                {snapshot?.berthId && <span className="value-sub">{berthName(snapshot.terminalId, snapshot.berthId)}</span>}
+              </div>
+              <div className={`compare-cell ${kind === 'difference' ? 'diff' : heard.uncertain ? 'amb' : ''}`}>
+                <span className="label">{t.reviewDetail.heard}</span>
+                <span className={`value ${terminalDiffers ? 'differs' : ''}`}>
+                  {heard.terminal ? heard.terminal.startsWith('[') ? <span className="uncertain">{heard.terminal}</span> : heard.terminal : t.common.notMentioned}
+                </span>
+                {heard.berth && (
+                  <span className={`value-sub ${berthDiffers ? 'differs' : ''}`}>{heard.berth.startsWith('[') ? <span className="uncertain">{heard.berth}</span> : heard.berth}</span>
+                )}
+              </div>
+            </div>
+            <div className="compare-foot small">
+              {snapshot ? `${snapshot.ownVessel} → ${snapshot.targetVessel}` : t.reviewDetail.noTaskAtTime} · {t.reviewDetail.vesselHeard(result.entities.vessel ?? t.common.unconfirmed)}
+            </div>
+          </section>
+          {terminalDiffers && !berthDiffers && heard.berth && <p style={{ fontSize: 'var(--fs-btn)', fontWeight: 600 }}>{t.reviewDetail.sameBerthOtherTerminal}</p>}
+          {berthDiffers && !terminalDiffers && <p style={{ fontSize: 'var(--fs-btn)', fontWeight: 600 }}>{t.reviewDetail.otherBerthSameTerminal}</p>}
+          {active && snapshot && active.version !== snapshot.version && <p className="small muted">{t.reviewDetail.currentDiffers(active.version, `${terminalName(active.terminalId) ?? ''} ${berthName(active.terminalId, active.berthId) ?? ''}`.trim())}</p>}
+        </>
+      )}
+
+      {/* 04 원음 / 완화음 인식 결과 */}
+      {showRecheck ? (
+        <>
+          <section className="card recheck-box">
+            <span className="section-label">{t.reviewDetail.rawResult}</span>
+            <p className="text" lang="ko">
+              {pending ? <span className="muted">{t.reviewDetail.rawPending}</span> : <RawTranscriptLine result={result} />}
+            </p>
+          </section>
+          <section className="card recheck-box">
+            <span className="section-label">{t.reviewDetail.enhancedResult}</span>
+            <p className="text" lang="ko">
+              <EnhancedTranscriptLine result={result} />
+            </p>
+            <TranscriptNotes result={result} />
+          </section>
+          <div className="btn-grid">
+            <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.reviewDetail.rawClip} wordAligned={Boolean(result.rawTranscript?.wordAligned)} />
+            <AudioButton utteranceId={utterance.utteranceId} variant="enhanced" label={t.reviewDetail.enhancedClip} wordAligned={Boolean(result.enhancedTranscript?.wordAligned)} />
+          </div>
+          <p className="small muted">{t.reviewDetail.sameNotGuaranteed}</p>
+        </>
+      ) : (
+        /* 03 근거 교신 */
+        <section className="card soft" aria-label={t.reviewDetail.evidence}>
+          <span className="utt-meta">
+            <b style={{ color: 'var(--ink)' }}>{result.entities.vessel ?? t.common.unconfirmed}</b>
+            <span className="time">{formatClock(utterance.capturedAt)}</span>
           </span>
-        </div>
-        <div className="utt-text" lang="ko">
-          <TranscriptView result={result} />
-        </div>
-        <TranscriptNotes result={result} />
-        <ResultFlags result={result} />
-        <div className="small muted">
-          {COMPARISON_HINT[kind]}
-          {result.comparison.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => formatReason(r, result)).join(', ')}` : ''}
-        </div>
-      </Card>
+          <p lang="ko" style={{ fontSize: 'var(--fs-lg)', fontWeight: 500, lineHeight: 1.45 }}>
+            “<TranscriptView result={result} highlight={kind === 'difference' ? diffs.map((d) => d.heardValue ?? '').filter(Boolean) : []} />”
+          </p>
+          <TranscriptNotes result={result} />
+          <div>
+            <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.clip.listen} wordAligned={Boolean(result.rawTranscript?.wordAligned)} />
+          </div>
+        </section>
+      )}
+
+      <EntityChips result={result} />
+      <ResultFlags result={result} />
+      {correction && <p className="small">{correction.unclear ? t.reviewDetail.correctionUnclear : t.reviewDetail.correction(correction.negated.join(', '))}</p>}
+      {result.audioFlags.length > 0 && (
+        <ul className="small" style={{ margin: 0, paddingLeft: 18 }} aria-label={t.card.flagsLabel}>
+          {result.audioFlags.map((f) => (
+            <li key={f}>
+              {t.audioFlag[f]} — {t.audioFlagHint[f]}
+            </li>
+          ))}
+        </ul>
+      )}
+      {reasons.length > 0 && <p className="small muted">{t.comparisonHint[kind]} · {reasons.map((r) => formatReason(r, result, t)).join(' · ')}</p>}
+
+      {/* 확인 행동 */}
+      <div className="no-print btn-stack">
+        {error && <Notice tone="danger">{error}</Notice>}
+        {done && <Notice>{done}</Notice>}
+
+        {clearDifference && !manual ? (
+          <>
+            <button type="button" className="btn md block" disabled={busy} onClick={() => void act('review')}>
+              {t.reviewDetail.reviewOnly}
+            </button>
+            {applyBlockers}
+            <p className="small">
+              {t.reviewDetail.applyTarget}{' '}
+              <b className="mono">
+                {terminalName(result.entities.terminalId)} {berthName(result.entities.terminalId, result.entities.berthId)}
+              </b>
+            </p>
+            {confirmBox}
+            {applyButton('primary')}
+          </>
+        ) : (
+          <button type="button" className="btn primary lg block" disabled={busy} onClick={() => void act('review')}>
+            <IconCheck />
+            {t.reviewDetail.reviewOnly}
+          </button>
+        )}
+        <button type="button" className="btn text" disabled={busy} onClick={() => void act('dismiss')}>
+          {t.reviewDetail.dismiss}
+        </button>
+
+        {kind !== 'unrelated' && !(clearDifference && !manual) && (
+          <section className="card soft" aria-label={t.reviewDetail.manualTitle}>
+            <h2>{t.reviewDetail.manualTitle}</h2>
+            <p className="small muted">{hasUncertainty ? t.reviewDetail.manualHintUncertain : t.reviewDetail.manualHint}</p>
+            {applyBlockers}
+            {manual ? (
+              <>
+                {manualPicker}
+                {confirmBox}
+                {applyButton('secondary')}
+                <button type="button" className="btn text" onClick={() => setManual(false)}>
+                  {t.common.cancel}
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setManual(true)} disabled={notComplete}>
+                {t.reviewDetail.manualOpen}
+              </button>
+            )}
+          </section>
+        )}
+      </div>
 
       {extras.length > 0 && (
-        <Card>
-          <h2>추출값</h2>
+        <Card className="soft" label={t.card.entitiesLabel}>
+          <h2>{t.card.entitiesLabel}</h2>
           <dl className="kv">
             {extras.map((it) => (
               <div key={it.key} style={{ display: 'contents' }}>
@@ -216,184 +409,22 @@ export function ReviewDetailPage() {
         </Card>
       )}
 
-      {/* 장소 비교 */}
-      <Card>
-        <h2>장소 비교</h2>
-        <div className="compare-grid">
-          <div className="compare-cell">
-            <div className="label">등록 기준 (발화 당시 v{utterance.taskVersion ?? '-'})</div>
-            <div className="value">{snapshot ? <PlaceValue terminal={snapshot.terminalId ?? '미정'} berth={snapshot.berthId ?? ''} diffs={diffs} side="task" /> : '등록 없음'}</div>
-            <div className="small muted">{snapshot ? `${snapshot.ownVessel} → ${snapshot.targetVessel}` : ''}</div>
-          </div>
-          <div className={`compare-cell ${kind === 'difference' ? 'diff' : place.uncertain ? 'amb' : ''}`}>
-            <div className="label">교신 언급</div>
-            <div className="value">
-              <PlaceValue terminal={place.terminal} berth={place.berth !== '언급 없음' ? place.berth : ''} diffs={diffs} side="heard" />
-            </div>
-            <div className="small muted">선박: {result.entities.vessel ?? '미확정'}</div>
-          </div>
-        </div>
-        {diffs.length > 0 && (
-          <dl className="kv" style={{ marginTop: 12 }} aria-label="기준과 다른 항목">
-            {diffs.map((d) => (
-              <div key={d.field} style={{ display: 'contents' }}>
-                <dt>{DIFF_FIELD_LABEL[d.field]}</dt>
-                <dd>
-                  기준 <b>{d.taskValue ?? '없음'}</b> → 교신 <mark className="diff-mark">{d.heardValue ?? '언급 없음'}</mark>
-                </dd>
-              </div>
-            ))}
-          </dl>
-        )}
-        {correction && (
-          <p className="small" style={{ marginBottom: 0 }}>
-            {correction.unclear ? (
-              <>
-                <b>정정 불명확</b> — 정정 내용을 확실히 알 수 없어 자동으로 판단하지 않았습니다. 기존 무전기로 다시 확인하세요.
-              </>
-            ) : (
-              <>
-                <b>정정 발화</b> — <s>{correction.negated.join(', ')}</s> 는 취소된 표현이라 판정에 쓰지 않았습니다.
-              </>
-            )}
-          </p>
-        )}
-        {active && snapshot && active.version !== snapshot.version && (
-          <p className="small muted" style={{ marginBottom: 0 }}>
-            현재 기준은 v{active.version} ({active.terminalId} {active.berthId})입니다. 이 교신은 발화 당시 기준과 비교했습니다.
-          </p>
-        )}
-      </Card>
-
-      {/* 핵심 구간 · 이중 인식 */}
-      <Card>
-        <div className="card-title-row">
-          <h2>원음 / 완화음 인식</h2>
-          {pending ? <Badge tone="info">교차 검사 중</Badge> : diffWords > 0 ? <Badge tone="warn">단어 차이 {diffWords}곳 · 확인 필요</Badge> : result.transcriptDiff ? <Badge tone="muted">차이 없음</Badge> : <Badge tone="muted">비교 정보 없음</Badge>}
-        </div>
-        <dl className="kv" style={{ gridTemplateColumns: '64px 1fr' }}>
-          <dt>완화음</dt>
-          <dd lang="ko">
-            <EnhancedTranscriptLine result={result} />
-          </dd>
-          <dt>원음</dt>
-          <dd lang="ko">{pending ? <span className="muted">원음 인식 대기 중…</span> : <RawTranscriptLine result={result} />}</dd>
-        </dl>
-        {result.uncertainties.length > 0 && (
-          <p className="small" style={{ marginBottom: 0 }}>
-            후보: {result.uncertainties.map((u) => `${UNCERTAIN_FIELD_LABEL[u.field]} ${formatAlternatives(u)}`).join(' · ')}
-            <br />
-            <span className="muted">두 결과가 같아도 정답을 보장하지 않습니다. 필요하면 기존 무전기로 다시 물어보세요.</span>
-          </p>
-        )}
-        {result.audioFlags.length > 0 && (
-          <ul className="small" style={{ margin: '8px 0 0', paddingLeft: 18 }} aria-label="입력 품질">
-            {result.audioFlags.map((f) => (
-              <li key={f}>
-                {AUDIO_FLAG_LABEL[f]} — {AUDIO_FLAG_HINT[f]}
-              </li>
-            ))}
-          </ul>
-        )}
-        <div className="compare-grid" style={{ marginTop: 12 }}>
-          <AudioButton utteranceId={utterance.utteranceId} variant="raw" label="원음 듣기" wordAligned={Boolean(result.rawTranscript?.wordAligned)} />
-          <AudioButton utteranceId={utterance.utteranceId} variant="enhanced" label="완화음 듣기" wordAligned={Boolean(result.enhancedTranscript?.wordAligned)} />
-        </div>
-      </Card>
-
-      {/* 확인 행동 */}
-      <Card className="no-print">
-        <h2>확인</h2>
-        {error && (
-          <div style={{ marginBottom: 12 }}>
-            <Notice tone="danger">{error}</Notice>
-          </div>
-        )}
-        {done && (
-          <div style={{ marginBottom: 12 }}>
-            <Notice>{done}</Notice>
-          </div>
-        )}
-        <div className="btn-row" style={{ marginBottom: 16 }}>
-          <button className="btn" disabled={busy} onClick={() => void act('review')}>
-            확인 표시만 하기
-          </button>
-          <button className="btn ghost" disabled={busy} onClick={() => void act('dismiss')}>
-            관련 없음
-          </button>
-        </div>
-
-        {kind !== 'unrelated' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="small muted">기록 반영: 확인한 장소로 작업 기준의 새 버전을 만듭니다.</div>
-            {pending && <Notice tone="warn">원음 교차 검사가 끝나야 반영할 수 있습니다.</Notice>}
-            {!pending && notComplete && <Notice tone="warn">원음 교차 검사를 하지 못한 결과라 반영할 수 없습니다. 기존 무전기로 다시 확인하세요.</Notice>}
-            {!active && <Notice tone="warn">등록된 작업이 없어 반영할 수 없습니다.</Notice>}
-
-            {clearDifference && !manual && (
-              <div>
-                반영할 장소: <b>{result.entities.terminalId} {result.entities.berthId}</b>
-              </div>
-            )}
-            {!clearDifference && !manual && (
-              <div className="small">{hasUncertainty ? '불확실한 후보가 있어 기본 반영이 꺼져 있습니다.' : '장소가 불확실해 기본 반영이 꺼져 있습니다.'} 직접 확인한 뒤 수동으로 선택하세요.</div>
-            )}
-
-            {manual ? (
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="m-term">터미널</label>
-                  <select id="m-term" value={patch.terminalId} onChange={(e) => setPatch({ terminalId: e.target.value, berthId: null })}>
-                    <option value="">선택</option>
-                    {CATALOG.terminals.map((t) => (
-                      <option key={t.terminalId}>{t.terminalId}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="m-berth">선석</label>
-                  <select id="m-berth" value={patch.berthId ?? ''} disabled={!manualTerminal} onChange={(e) => setPatch((p) => ({ ...p, berthId: e.target.value || null }))}>
-                    <option value="">선택</option>
-                    {manualTerminal?.berths.map((b) => (
-                      <option key={b.berthId} value={b.berthId}>
-                        {b.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setManual(true)} disabled={notComplete}>
-                장소 직접 선택
-              </button>
-            )}
-
-            <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44 }}>
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} style={{ width: 22, height: 22 }} disabled={notComplete || !patchValid} />
-              교신 내용을 직접 확인했고 이 장소로 기록을 바꿉니다
-            </label>
-            <button className="btn primary" disabled={busy || !canApply} onClick={() => void act('apply')}>
-              {active ? `확인 후 기록 반영 (v${active.version} → v${active.version + 1})` : '확인 후 기록 반영'}
-            </button>
-          </div>
-        )}
-      </Card>
-
       {events.length > 0 && (
-        <Card>
-          <h2>확인 기록</h2>
-          <ul className="timeline">
+        <>
+          <h2>{t.reviewDetail.history}</h2>
+          <div className="timeline-rail">
             {events.map((e) => (
-              <li key={e.eventId}>
-                <time>{formatClock(e.at)}</time>
-                <div>
-                  <div className="t-title">{e.action === 'apply' ? '기록 반영' : e.action === 'dismiss' ? '관련 없음' : '확인 표시'}</div>
-                  <div className="t-detail">{e.action === 'apply' ? `v${e.taskVersionBefore} → v${e.taskVersionAfter}` : '기준 변경 없음'} · r{e.resultRevision}</div>
+              <Card key={e.eventId} className="soft">
+                <StatusMark className="mark" shape="circle" />
+                <div className="utt-head">
+                  <b>{t.review[e.action === 'apply' ? 'applied' : e.action === 'dismiss' ? 'dismissed' : 'reviewed']}</b>
+                  <span className="time">{formatClock(e.at)}</span>
                 </div>
-              </li>
+                <p className="small muted">{e.action === 'apply' ? `v${e.taskVersionBefore} → v${e.taskVersionAfter}` : t.reviewDetail.noChange} · r{e.resultRevision}</p>
+              </Card>
             ))}
-          </ul>
-        </Card>
+          </div>
+        </>
       )}
     </>
   )

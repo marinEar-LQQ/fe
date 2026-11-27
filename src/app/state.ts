@@ -59,6 +59,8 @@ export interface AppState {
   session: { sessionId: string | null; source: UiSource | null }
   messageState: { order: string[]; byId: Record<string, MessageEntry> }
   gaps: GapEntry[]
+  /** 저장된 일지 기준 미확인 재확인 건수 (새로고침 후에도 하단 메뉴 배지 유지) */
+  pendingReviews: number
   translations: Record<string, Translation>
   reviewState: Record<string, ReviewState>
   errors: { id: string; code: NoticeCode; message: string; at: number }[]
@@ -91,6 +93,7 @@ export function initialState(prefs?: AppState['preferences']): AppState {
     session: { sessionId: null, source: null },
     messageState: { order: [], byId: {} },
     gaps: [],
+    pendingReviews: 0,
     translations: {},
     reviewState: {},
     errors: [],
@@ -115,6 +118,7 @@ export type Action =
   | { type: 'set-pref'; prefs: Partial<AppState['preferences']> }
   | { type: 'error'; code: NoticeCode; message: string }
   | { type: 'wake-lock'; state: WakeLockState }
+  | { type: 'pending-reviews'; count: number }
   | { type: 'dismiss-error'; id: string }
   | { type: 'clear-messages' }
 
@@ -146,6 +150,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, inputState: { ...state.inputState, status: action.status, level: action.level ?? (action.status === 'capturing' ? state.inputState.level : 0), detail: action.detail ?? null } }
     case 'wake-lock':
       return { ...state, wakeLock: action.state }
+    case 'pending-reviews':
+      return state.pendingReviews === action.count ? state : { ...state, pendingReviews: action.count }
     case 'input-level':
       return state.inputState.status === 'capturing' ? { ...state, inputState: { ...state.inputState, level: action.level } } : state
     case 'translation':

@@ -41,10 +41,12 @@ function TopBar() {
 function BottomNav() {
   const { state } = useApp()
   const t = useT()
-  const pending = state.messageState.order.filter((id) => {
+  // 저장된 일지 기준 + 지금 화면의 미확인 중 큰 값 (일지 저장 직전 순간에도 배지가 비지 않게)
+  const live = state.messageState.order.filter((id) => {
     const r = state.messageState.byId[id]?.result
     return r && needsReview(r.comparison.kind) && (state.reviewState[id] ?? 'unreviewed') === 'unreviewed'
   }).length
+  const pending = Math.max(live, state.pendingReviews)
   const items = [
     { to: '/monitor', label: t.nav.monitor, Icon: IconRadio },
     { to: '/reviews', label: t.nav.reviews, Icon: IconReview, badge: pending },

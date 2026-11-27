@@ -69,10 +69,11 @@ export function MonitorPage() {
   const feed = buildFeed(state, uiState.filter)
   const live = session.source === 'live'
   const liveGaps = live ? state.gaps.filter((g) => g.sessionId === session.sessionId).length : 0
-  const pending = messageState.order.filter((id) => {
+  const livePending = messageState.order.filter((id) => {
     const r = messageState.byId[id]?.result
     return r && needsReview(r.comparison.kind) && (state.reviewState[id] ?? 'unreviewed') === 'unreviewed'
   }).length
+  const pending = Math.max(livePending, state.pendingReviews)
   const wakeText = { active: t.monitor.wake.active, unsupported: t.monitor.wake.unsupported, released: t.monitor.wake.released, failed: t.monitor.wake.failed, off: '' }[wakeLock]
 
   return (

@@ -145,6 +145,28 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     return unsub
   }, [engine, fail, refreshReadiness])
 
+  // 재확인 배지: 저장된 일지에서 미확인(장소 차이·재확인 필요) 건수를 센다. 이벤트가 몰리면 0.5초 모아서 한 번만
+  const activeTaskId = state.taskState.active?.taskId
+  useEffect(() => {
+    if (!activeTaskId) {
+      dispatch({ type: 'pending-reviews', count: 0 })
+      return
+    }
+    const timer = setTimeout(() => {
+      engine.getTaskLog(activeTaskId).then(
+        (log) => {
+          const count = log.utterances.filter((u) => {
+            const kind = u.results[u.results.length - 1]?.comparison.kind
+            return (kind === 'difference' || kind === 'ambiguous') && u.reviewState === 'unreviewed'
+          }).length
+          dispatch({ type: 'pending-reviews', count })
+        },
+        () => undefined,
+      )
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [engine, activeTaskId, state.messageState, state.reviewState])
+
   // 선호 설정 저장 (작은 설정값만 localStorage)
   useEffect(() => {
     localStorage.setItem('marinear.prefs', JSON.stringify(state.preferences))

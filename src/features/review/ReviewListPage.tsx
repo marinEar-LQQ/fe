@@ -5,6 +5,7 @@ import { useApp } from '../../app/AppContext'
 import { describeError } from '../../app/errors'
 import { entryFromLog, type MessageEntry } from '../../app/state'
 import { needsReview } from '../../contracts/labels'
+import { useT } from '../../i18n'
 import { EmptyState, Segmented } from '../../ui/components'
 import { UtteranceCard } from '../radio/UtteranceCard'
 
@@ -12,6 +13,7 @@ type Tab = 'pending' | 'done'
 
 export function ReviewListPage() {
   const { state, engine, dispatch } = useApp()
+  const t = useT()
   const [tab, setTab] = useState<Tab>('pending')
   const [stored, setStored] = useState<{ entry: MessageEntry; review: ReviewState }[]>([])
   const task = state.taskState.active
@@ -42,21 +44,33 @@ export function ReviewListPage() {
 
   return (
     <>
+      <h1>{t.reviewList.title}</h1>
       <Segmented<Tab>
-        label="재확인 목록"
+        label={t.reviewList.title}
         value={tab}
         onChange={setTab}
         options={[
-          { value: 'pending', label: `확인 필요 ${pending.length}` },
-          { value: 'done', label: `처리함 ${done.length}` },
+          { value: 'pending', label: t.reviewList.pending(pending.length) },
+          { value: 'done', label: t.reviewList.done(done.length) },
         ]}
       />
       {list.length === 0 ? (
-        <EmptyState title={tab === 'pending' ? '재확인할 교신이 없습니다' : '처리한 교신이 없습니다'} action={<Link className="btn" to="/monitor">교신 화면으로</Link>}>
-          장소 차이나 불명확한 교신이 생기면 여기에 모입니다.
+        <EmptyState
+          title={tab === 'pending' ? t.reviewList.emptyPending : t.reviewList.emptyDone}
+          action={
+            <Link className="btn" to="/monitor">
+              {t.reviewList.toMonitor}
+            </Link>
+          }
+        >
+          {t.reviewList.emptyHint}
         </EmptyState>
       ) : (
-        list.map((m) => <UtteranceCard key={m.entry.utterance.utteranceId} entry={m.entry} review={m.review} />)
+        <div className="timeline-rail">
+          {list.map((m) => (
+            <UtteranceCard key={m.entry.utterance.utteranceId} entry={m.entry} review={m.review} />
+          ))}
+        </div>
       )}
     </>
   )

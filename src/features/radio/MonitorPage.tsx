@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { buildFeed, engineStatus, type Filter, type GapEntry } from '../../app/state'
+import { useReviewQueue } from '../../app/useReviewQueue'
 import { CATALOG, findTerminal } from '../../contracts/catalog'
 import { LANGS } from '../../contracts/lang'
 import { formatMs, needsReview } from '../../contracts/labels'
@@ -83,7 +84,8 @@ export function MonitorPage() {
     return r && needsReview(r.comparison.kind) && (state.reviewState[id] ?? 'unreviewed') === 'unreviewed'
   }).length
   const pending = Math.max(livePending, state.pendingReviews)
-  const wakeText = { active: t.monitor.wake.active, unsupported: t.monitor.wake.unsupported, released: t.monitor.wake.released, failed: t.monitor.wake.failed, off: '' }[wakeLock]
+  const queue = useReviewQueue()
+  const wakeText ={ active: t.monitor.wake.active, unsupported: t.monitor.wake.unsupported, released: t.monitor.wake.released, failed: t.monitor.wake.failed, off: '' }[wakeLock]
 
   return (
     <>
@@ -195,6 +197,34 @@ export function MonitorPage() {
           {t.capture[inputState.issue.kind]}
           {inputState.issue.extra && <div className="small muted">{inputState.issue.extra}</div>}
         </Notice>
+      )}
+
+      {/* 흐름: 분석 → "확인할 교신 N건" → 재확인(자동으로 다음 건) → 다 끝나면 "교신 기록 정리" → 일지 */}
+      {task && queue.pendingIds.length > 0 ? (
+        <Link to={`/reviews/${queue.pendingIds[0]}`} className="card alert flow-band" aria-label={t.flow.startReview}>
+          <StatusMark className="mark" shape="triangle" />
+          <span className="grow">
+            <b>{t.flow.pendingBand(queue.pendingIds.length)}</b>
+            <span className="small muted" style={{ display: 'block' }}>
+              {t.flow.pendingHint}
+            </span>
+          </span>
+          <span className="btn sm alert">{t.flow.startReview} →</span>
+        </Link>
+      ) : (
+        task &&
+        !running &&
+        queue.utterances > 0 && (
+          <Link to="/report" className="card soft flow-band" aria-label={t.flow.organize}>
+            <span className="grow">
+              <b>{t.flow.organize}</b>
+              <span className="small muted" style={{ display: 'block' }}>
+                {t.flow.organizeHint}
+              </span>
+            </span>
+            <span className="btn sm primary">{t.flow.organize} →</span>
+          </Link>
+        )
       )}
 
       <Segmented<Filter>

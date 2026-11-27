@@ -557,4 +557,16 @@ export const en: Messages = {
     wakeFailed: (msg) => `Could not keep the screen on (${msg}). Keep the screen on yourself while receiving.`,
     backgroundPause: (secs) => `For about ${secs} s the screen was off or another tab/app was open. Calls may have been missed. Confirm important content on the radio.`,
   },
+  flow: {
+    pendingBand: (n: number) => `${n} call${n === 1 ? '' : 's'} to check`,
+    pendingHint: 'Check location differences and unclear calls one by one.',
+    startReview: 'Start checking',
+    organize: 'Wrap up the log',
+    organizeHint: 'All calls are checked. Add a note in the log and save it.',
+    remaining: (n: number) => `${n} left to check`,
+    nextIn: 'Moving to the next call to check…',
+    allDone: 'All calls checked. Returning to radio calls…',
+    next: 'Next',
+    backToMonitor: 'Back to radio calls',
+  },
 }

@@ -557,4 +557,16 @@ export const id: Messages = {
     wakeFailed: (msg) => `Layar tidak dapat dijaga tetap menyala (${msg}). Biarkan layar menyala sendiri saat menerima.`,
     backgroundPause: (secs) => `Sekitar ${secs} detik layar mati atau tab/aplikasi lain terbuka. Pesan mungkin terlewat. Pastikan isi penting lewat radio.`,
   },
+  flow: {
+    pendingBand: (n: number) => `${n} panggilan perlu dicek`,
+    pendingHint: 'Periksa perbedaan lokasi dan panggilan yang tidak jelas satu per satu.',
+    startReview: 'Mulai cek',
+    organize: 'Rapikan catatan',
+    organizeHint: 'Semua panggilan sudah dicek. Tambahkan catatan di log lalu simpan.',
+    remaining: (n: number) => `${n} tersisa`,
+    nextIn: 'Pindah ke panggilan berikutnya…',
+    allDone: 'Semua panggilan sudah dicek. Kembali ke panggilan radio…',
+    next: 'Berikutnya',
+    backToMonitor: 'Kembali ke panggilan radio',
+  },
 }

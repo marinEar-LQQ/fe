@@ -557,4 +557,16 @@ export const vi: Messages = {
     wakeFailed: (msg) => `Không giữ được màn hình sáng (${msg}). Hãy tự để màn hình sáng khi đang thu.`,
     backgroundPause: (secs) => `Khoảng ${secs} giây màn hình tắt hoặc đang ở tab/ứng dụng khác. Có thể đã bỏ lỡ cuộc gọi. Hãy xác nhận nội dung quan trọng qua bộ đàm.`,
   },
+  flow: {
+    pendingBand: (n: number) => `${n} cuộc gọi cần kiểm tra`,
+    pendingHint: 'Kiểm tra từng cuộc gọi có vị trí khác hoặc chưa rõ.',
+    startReview: 'Bắt đầu kiểm tra',
+    organize: 'Tổng hợp nhật ký',
+    organizeHint: 'Đã kiểm tra hết. Ghi chú trong nhật ký rồi lưu lại.',
+    remaining: (n: number) => `Còn ${n} cuộc gọi`,
+    nextIn: 'Chuyển sang cuộc gọi tiếp theo…',
+    allDone: 'Đã kiểm tra hết. Quay lại màn hình cuộc gọi…',
+    next: 'Tiếp theo',
+    backToMonitor: 'Quay lại cuộc gọi',
+  },
 }

@@ -1,7 +1,8 @@
 import type { AnalysisResult, AudioClip, AudioVariant, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
+import { useReviewQueue } from '../../app/useReviewQueue'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal } from '../../contracts/catalog'
 import { formatClock, formatMs } from '../../contracts/labels'
@@ -87,8 +88,17 @@ function heardPlace(result: AnalysisResult): { terminal: string | null; berth: s
 /** 03/04 재확인 상세 — 같은 화면에서 판정에 따라 장소 비교(03)·원음/완화음 비교(04) 칸을 보인다 (둘 다 해당하면 둘 다) */
 export function ReviewDetailPage() {
   const { id } = useParams()
+  // 다음 건으로 자동 이동하면 주소만 바뀐다 — 건마다 새 화면 상태(체크·완료 문구)로 시작하도록 key 를 준다
+  return <ReviewDetail key={id} />
+}
+
+function ReviewDetail() {
+  const { id } = useParams()
   const { state, review } = useApp()
   const t = useT()
+  const navigate = useNavigate()
+  const queue = useReviewQueue()
+  const [advance, setAdvance] = useState<string | null>(null)
   const { entry, versions, events, storedReview, loading, loadError, reload } = useUtterance(id)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -186,6 +196,10 @@ export function ReviewDetailPage() {
       setDone(action === 'apply' ? t.reviewDetail.doneApply(ev.taskVersionAfter) : action === 'dismiss' ? t.reviewDetail.doneDismiss : t.reviewDetail.doneReview)
       setManual(false)
       setConfirmed(false)
+      // 흐름: 처리하면 다음 확인할 교신으로, 다 끝나면 교신 화면으로 (처리 결과 문구를 잠깐 보여 준 뒤)
+      const next = queue.pendingIds.find((x) => x !== utterance.utteranceId)
+      setAdvance(next ? t.flow.nextIn : t.flow.allDone)
+      window.setTimeout(() => navigate(next ? `/reviews/${next}` : '/monitor'), 1400)
     } catch (e) {
       const { code, message } = describeError(e)
       // VERSION_CONFLICT / RESULT_STALE: 자동 재시도하지 않고 최신 기준·결과를 다시 불러와 보여준다
@@ -254,6 +268,7 @@ export function ReviewDetailPage() {
 
       <div className="status-strip">
         <ReviewBadge status={reviewStatus} />
+        {queue.pendingIds.length > 0 && <span className="badge warn">{t.flow.remaining(queue.pendingIds.length)}</span>}
         {pending && <span className="badge info">{t.card.provisional}</span>}
         {entry.fixture && <DemoBadge />}
         <span className="chip">r{result.revision}</span>
@@ -345,7 +360,12 @@ export function ReviewDetailPage() {
       {/* 확인 행동 */}
       <div className="no-print btn-stack">
         {error && <Notice tone="danger">{error}</Notice>}
-        {done && <Notice>{done}</Notice>}
+        {done && (
+          <Notice>
+            {done}
+            {advance && <div style={{ fontWeight: 600, marginTop: 4 }}>{advance}</div>}
+          </Notice>
+        )}
 
         {clearDifference && !manual ? (
           <>

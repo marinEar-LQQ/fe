@@ -1247,3 +1247,20 @@ progress::-moz-progress-bar {
   color: var(--alert);
   border-color: var(--alert);
 }
+
+/* ───────── 흐름 띠 (교신 → 재확인 → 일지) ───────── */
+.flow-band {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+.flow-band > .mark {
+  position: static;
+  flex-shrink: 0;
+}
+.flow-band .btn {
+  flex-shrink: 0;
+  pointer-events: none;
+}

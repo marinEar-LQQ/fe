@@ -561,6 +561,18 @@ export const ko = {
     wakeFailed: (msg: string) => `화면 꺼짐 방지를 켜지 못했습니다 (${msg}). 수신 중에는 화면을 직접 켜 두세요.`,
     backgroundPause: (secs: number) => `약 ${secs}초 동안 화면이 꺼졌거나 다른 탭·앱에 있었습니다. 그동안의 교신은 누락됐을 수 있습니다. 중요한 내용은 기존 무전기로 다시 확인하세요.`,
   },
+  flow: {
+    pendingBand: (n: number) => `확인할 교신 ${n}건`,
+    pendingHint: '장소 차이·확인 필요 교신을 하나씩 확인하세요.',
+    startReview: '재확인 시작',
+    organize: '교신 기록 정리',
+    organizeHint: '확인할 교신을 모두 처리했습니다. 일지에서 메모를 남기고 저장하세요.',
+    remaining: (n: number) => `남은 확인 ${n}건`,
+    nextIn: '다음 확인할 교신으로 이동합니다…',
+    allDone: '모든 교신을 확인했습니다. 교신 화면으로 돌아갑니다…',
+    next: '다음 건',
+    backToMonitor: '교신으로 돌아가기',
+  },
 }
 
 /** 문자열 리터럴을 string 으로 넓힌 문구 구조 — 다른 언어 파일의 타입 */

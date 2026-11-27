@@ -1,9 +1,9 @@
+import type { AnalysisResult, ReviewState } from 'marinear-engine'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { translationKey, type MessageEntry } from '../../app/state'
 import { langLabel } from '../../contracts/lang'
-import { COMPARISON_HINT, REASON_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
-import type { AnalysisResult, ReviewStatus } from '../../contracts/types'
+import { COMPARISON_HINT, LANG_AVAILABILITY_LABEL, REASON_LABEL, STAGE_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
 import { Badge, ComparisonBadge, DemoBadge, ReviewBadge } from '../../ui/components'
 
 /** 불확실 값은 [A / B] 로 강조해서 보여준다 */
@@ -24,9 +24,9 @@ export function TranscriptText({ result }: { result: AnalysisResult }) {
   )
 }
 
-export function UtteranceCard({ entry, showReviewLink = true, review: storedReview }: { entry: MessageEntry; showReviewLink?: boolean; review?: ReviewStatus }) {
+export function UtteranceCard({ entry, showReviewLink = true, review: storedReview }: { entry: MessageEntry; showReviewLink?: boolean; review?: ReviewState }) {
   const { state } = useApp()
-  const { utterance, result, partialText } = entry
+  const { utterance, result, partialText, stage } = entry
   const lang = state.preferences.targetLang
   const review = state.reviewState[utterance.utteranceId] ?? storedReview ?? 'unreviewed'
 
@@ -35,26 +35,35 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
       <article className="card utt partial" aria-label="잠정 자막">
         <div className="utt-meta">
           <span className="mono">{formatMs(utterance.startMs)}</span>
-          <Badge tone="info">잠정 자막 · 분석 중</Badge>
-          {utterance.isFixture && <DemoBadge />}
+          <Badge tone={stage === 'failed' ? 'danger' : 'info'}>{stage ? STAGE_LABEL[stage] : '분석 대기'}</Badge>
+          {entry.fixture && <DemoBadge />}
         </div>
-        <div className="utt-text">{partialText}</div>
+        {partialText ? (
+          <div className="utt-text">
+            {partialText}
+            <div className="small muted">잠정 자막 — 검토·반영에 쓰지 않습니다.</div>
+          </div>
+        ) : (
+          <div className="small muted">{stage === 'failed' ? '이 발화는 분석하지 못했습니다. 원음은 보존되어 있습니다.' : '발화를 분석하고 있습니다…'}</div>
+        )}
       </article>
     )
   }
 
-  const kind = result.comparison?.kind ?? 'unknown'
+  const kind = result.comparison.kind
   const translation = lang !== 'ko' ? state.translations[translationKey(utterance.utteranceId, result.revision, lang)] : undefined
-  const reasons = result.comparison?.reasonCodes ?? []
+  const availability = state.engineState.readiness?.languages[lang]
+  const reasons = result.comparison.reasonCodes
 
   return (
     <article className={`card utt kind-${kind}`}>
       <div className="utt-meta">
         <span className="mono">{formatMs(utterance.startMs)}</span>
         <ComparisonBadge kind={kind} />
-        {result.crossCheck === 'pending' && <Badge tone="info">원음 교차 검사 중</Badge>}
+        {result.crossCheck === 'pending' && <Badge tone="info">{stage && stage !== 'done' ? STAGE_LABEL[stage] : '원음 교차 검사 중'}</Badge>}
+        {result.crossCheck === 'unavailable' && <Badge tone="warn">원음 교차 검사 못 함</Badge>}
         {needsReview(kind) && <ReviewBadge status={review} />}
-        {utterance.isFixture && <DemoBadge />}
+        {entry.fixture && <DemoBadge />}
         <span className="small" style={{ marginLeft: 'auto' }}>
           기준 v{utterance.taskVersion ?? '-'} · r{result.revision}
         </span>
@@ -74,7 +83,14 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
       {lang !== 'ko' && (
         <div className="utt-translation" lang={lang} aria-live="polite">
           <span className="lang-tag">
-            {langLabel(lang)} · {translation ? TRANSLATION_STATUS_LABEL[translation.status] : TRANSLATION_STATUS_LABEL.loading}
+            {langLabel(lang)} ·{' '}
+            {translation
+              ? TRANSLATION_STATUS_LABEL[translation.status]
+              : availability && availability !== 'ready'
+                ? LANG_AVAILABILITY_LABEL[availability]
+                : result.crossCheck === 'pending'
+                  ? '원음 교차 검사 후 번역'
+                  : TRANSLATION_STATUS_LABEL.pending}
           </span>
           {translation?.text ?? <span className="muted small">한국어 원문을 기준으로 확인하세요.</span>}
         </div>

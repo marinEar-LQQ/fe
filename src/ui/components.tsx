@@ -1,6 +1,7 @@
+import type { ComparisonKind, ReviewState } from 'marinear-engine'
 import type { ReactNode } from 'react'
+import type { EngineStatus, UiInputStatus } from '../app/state'
 import { COMPARISON_LABEL, REVIEW_LABEL } from '../contracts/labels'
-import type { ComparisonKind, EngineStatus, InputStatus, ReviewStatus } from '../contracts/types'
 
 /** 재디자인 가능한 표시 부품. 업무 로직을 넣지 않는다. */
 
@@ -19,8 +20,8 @@ export function ComparisonBadge({ kind }: { kind: ComparisonKind }) {
   return <Badge tone={KIND_TONE[kind]}>{COMPARISON_LABEL[kind]}</Badge>
 }
 
-const REVIEW_TONE: Record<ReviewStatus, Tone> = { unreviewed: 'warn', reviewed: 'info', dismissed: 'muted', applied: 'ok' }
-export function ReviewBadge({ status }: { status: ReviewStatus }) {
+const REVIEW_TONE: Record<ReviewState, Tone> = { unreviewed: 'warn', reviewed: 'info', dismissed: 'muted', applied: 'ok' }
+export function ReviewBadge({ status }: { status: ReviewState }) {
   return <Badge tone={REVIEW_TONE[status]}>{REVIEW_LABEL[status]}</Badge>
 }
 
@@ -32,16 +33,14 @@ export function DemoBadge({ label = '시연 데이터' }: { label?: string }) {
   )
 }
 
-const INPUT_TEXT: Record<InputStatus, [Tone, string]> = {
+const INPUT_TEXT: Record<UiInputStatus, [Tone, string]> = {
   idle: ['muted', '입력 대기'],
   requesting: ['info', '권한 요청 중'],
-  ready: ['info', '입력 준비됨'],
   capturing: ['ok', '입력 수신 중'],
-  paused: ['warn', '일시 정지'],
   disconnected: ['danger', '입력 끊김'],
   error: ['danger', '입력 오류'],
 }
-export function InputBadge({ status }: { status: InputStatus }) {
+export function InputBadge({ status }: { status: UiInputStatus }) {
   const [tone, text] = INPUT_TEXT[status]
   return <Badge tone={tone}>{text}</Badge>
 }
@@ -50,7 +49,7 @@ const ENGINE_TEXT: Record<EngineStatus, [Tone, string]> = {
   loading: ['info', '엔진 준비 중'],
   ready: ['ok', '엔진 대기'],
   processing: ['info', '분석 중'],
-  degraded: ['warn', '분석 제한'],
+  degraded: ['warn', '모델 준비 필요'],
   error: ['danger', '엔진 오류'],
 }
 export function EngineBadge({ status, queueDepth }: { status: EngineStatus; queueDepth: number }) {

@@ -1,4 +1,4 @@
-import type { AudioFrame } from '../contracts/types'
+import type { AudioFrame } from 'marinear-engine'
 
 /**
  * 현장 입력 흐름: 권한 요청 → audioinput 선택 → 레벨/샘플레이트 확인 → 캡처
@@ -84,8 +84,9 @@ export async function startCapture(deviceId: string | null, cb: CaptureCallbacks
   let samples = 0
   node.port.onmessage = (ev: MessageEvent<{ pcm: Float32Array; rms: number; peak: number }>) => {
     const { pcm, rms, peak } = ev.data
+    const length = pcm.length // onFrame 이 pcm 버퍼를 Worker 로 transfer 하면 length 가 0 이 되므로 먼저 읽는다
     cb.onFrame({ seq: seq++, startMs: Math.round((samples / ctx.sampleRate) * 1000), sampleRate: ctx.sampleRate, channels: 1, pcm }, { rms, peak })
-    samples += pcm.length
+    samples += length
   }
 
   let stopped = false

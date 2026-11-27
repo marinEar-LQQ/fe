@@ -12,7 +12,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "idb": "^8.0.4",
+    "marinear-engine": "github:marinEar-LQQ/backend",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.7"

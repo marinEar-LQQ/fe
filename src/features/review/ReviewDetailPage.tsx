@@ -1,18 +1,17 @@
+import type { AnalysisResult, AudioClip, AudioVariant, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
-import { DEMO_CATALOG, findTerminal } from '../../contracts/catalog'
+import { describeError, isStale } from '../../app/errors'
+import { CATALOG, findTerminal } from '../../contracts/catalog'
 import { COMPARISON_HINT, REASON_LABEL, formatClock, formatMs } from '../../contracts/labels'
-import type { AnalysisResult, ReviewAction, ReviewStatus } from '../../contracts/types'
 import { Badge, Card, ComparisonBadge, DemoBadge, EmptyState, Notice, ReviewBadge } from '../../ui/components'
 import { TranscriptText } from '../radio/UtteranceCard'
 import { useUtterance } from './useUtterance'
 
-const CLIP_REASON: Record<string, string> = {
-  DEMO_NO_AUDIO: '시연 데이터에는 음성이 없습니다.',
-  ENGINE_NOT_CONNECTED: '잡음 완화 엔진이 연결되지 않아 완화음이 없습니다.',
-  DELETED: '삭제된 음성이라 재생할 수 없습니다.',
-  NOT_FOUND: '음성을 찾을 수 없습니다.',
+const CLIP_REASON: Record<Exclude<AudioClip['status'], 'available'>, string> = {
+  deleted: '삭제된 음성이라 재생할 수 없습니다.',
+  missing: '저장된 음성을 찾을 수 없습니다.',
 }
 
 /** raw/enhanced 문장을 단어 단위로 비교해 다른 부분을 표시 */
@@ -33,7 +32,7 @@ function DiffText({ text, other }: { text: string; other: string }) {
   )
 }
 
-function AudioButton({ utteranceId, variant, label }: { utteranceId: string; variant: 'raw' | 'enhanced'; label: string }) {
+function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId: string; variant: AudioVariant; label: string; wordAligned: boolean }) {
   const { engine } = useApp()
   const [msg, setMsg] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
@@ -42,11 +41,16 @@ function AudioButton({ utteranceId, variant, label }: { utteranceId: string; var
   useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
 
   async function play() {
-    const clip = await engine.getAudioClip(utteranceId, variant)
-    if (!clip.available || !clip.blob) return setMsg(CLIP_REASON[clip.reason ?? 'NOT_FOUND'])
+    let clip: AudioClip
+    try {
+      clip = await engine.getAudioClip(utteranceId, variant)
+    } catch (e) {
+      return setMsg(`음성을 불러오지 못했습니다: ${describeError(e).message}`)
+    }
+    if (clip.status !== 'available' || !clip.blob) return setMsg(CLIP_REASON[clip.status === 'available' ? 'missing' : clip.status])
     const u = URL.createObjectURL(clip.blob)
     setUrl(u)
-    setMsg(clip.wholeUtterance ? '단어 구간이 검증되지 않아 전체 음성을 재생합니다.' : null)
+    setMsg(wordAligned ? null : '단어 구간이 검증되지 않아 전체 발화를 재생합니다.')
     setTimeout(() => audioRef.current?.play().catch(() => setMsg('재생을 시작하지 못했습니다.')), 0)
   }
 
@@ -61,6 +65,8 @@ function AudioButton({ utteranceId, variant, label }: { utteranceId: string; var
   )
 }
 
+const UNC_FIELD: Record<AnalysisResult['uncertainties'][number]['field'], string> = { vessel: '선박', terminalId: '터미널', berthId: '선석', number: '숫자' }
+
 function placeOf(result: AnalysisResult): { terminal: string; berth: string; uncertain: boolean } {
   const tu = result.uncertainties.find((u) => u.field === 'terminalId')
   const bu = result.uncertainties.find((u) => u.field === 'berthId')
@@ -74,15 +80,17 @@ function placeOf(result: AnalysisResult): { terminal: string; berth: string; unc
 export function ReviewDetailPage() {
   const { id } = useParams()
   const { state, review } = useApp()
-  const { entry, versions, events, loading } = useUtterance(id)
+  const { entry, versions, events, storedReview, loading, loadError, reload } = useUtterance(id)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
   const [manual, setManual] = useState(false)
   const [patch, setPatch] = useState<{ terminalId: string; berthId: string | null }>({ terminalId: '', berthId: null })
+  const requestIdRef = useRef<{ key: string; id: string } | null>(null)
   const [confirmed, setConfirmed] = useState(false)
 
   if (loading && !entry) return <EmptyState title="불러오는 중…" />
+  if (loadError && !entry) return <Notice tone="danger">기록을 불러오지 못했습니다: {loadError}</Notice>
   if (!entry || !entry.result)
     return (
       <EmptyState title="교신을 찾을 수 없습니다" action={<Link className="btn" to="/reviews">재확인 목록</Link>}>
@@ -91,42 +99,57 @@ export function ReviewDetailPage() {
     )
 
   const { utterance, result } = entry
-  const kind = result.comparison?.kind ?? 'unknown'
+  const kind = result.comparison.kind
   const active = state.taskState.active
   const snapshot = versions.find((v) => v.version === utterance.taskVersion) ?? (active?.version === utterance.taskVersion ? active : undefined)
   const place = placeOf(result)
-  const reviewStatus: ReviewStatus = state.reviewState[utterance.utteranceId] ?? (events.length ? (events[events.length - 1].action === 'apply' ? 'applied' : events[events.length - 1].action === 'dismiss' ? 'dismissed' : 'reviewed') : 'unreviewed')
+  const reviewStatus: ReviewState = state.reviewState[utterance.utteranceId] ?? storedReview
+  // 원음 교차 검사가 끝나지 않은(pending/unavailable) 결과로는 반영할 수 없다 (엔진: UNCERTAIN_VALUE)
   const pending = result.crossCheck === 'pending'
+  const notComplete = result.crossCheck !== 'complete'
   const clearDifference = kind === 'difference' && !place.uncertain
-  const effectivePatch = manual ? patch : clearDifference ? { terminalId: result.entities.terminalId!, berthId: result.entities.berthId } : null
+  const effectivePatch: TaskPatch | null = manual ? patch : clearDifference ? { terminalId: result.entities.terminalId!, berthId: result.entities.berthId } : null
   const patchValid = Boolean(effectivePatch?.terminalId && effectivePatch.berthId)
-  const canApply = !pending && confirmed && patchValid && Boolean(active) && reviewStatus !== 'applied'
+  const canApply = !notComplete && confirmed && patchValid && Boolean(active) && reviewStatus !== 'applied'
   const rawText = result.rawTranscript?.text ?? ''
   const enhText = result.enhancedTranscript?.text ?? ''
-  const manualTerminal = findTerminal(DEMO_CATALOG, patch.terminalId)
+  const manualTerminal = findTerminal(CATALOG, patch.terminalId)
+  const expectedTaskVersion = active?.version ?? utterance.taskVersion
+
+  /** 멱등 키: 같은 명령(행동·revision·기준·값)을 다시 보내면 같은 requestId 를 쓴다 */
+  function requestIdFor(action: ReviewAction, p: TaskPatch | undefined): string {
+    const key = JSON.stringify([utterance.utteranceId, action, result.revision, expectedTaskVersion, p ?? null])
+    if (requestIdRef.current?.key !== key) requestIdRef.current = { key, id: crypto.randomUUID() }
+    return requestIdRef.current.id
+  }
 
   async function act(action: ReviewAction) {
     setBusy(true)
     setError(null)
     setDone(null)
-    const res = await review({
-      utteranceId: utterance.utteranceId,
-      action,
-      expectedTaskVersion: active?.version ?? null,
-      expectedResultRevision: result.revision,
-      confirmedByUser: action === 'apply' ? confirmed : true,
-      patch: action === 'apply' ? (effectivePatch ?? undefined) : undefined,
-    })
-    setBusy(false)
-    if (!res.ok) {
-      // 충돌이면 자동 재시도하지 않고 현재 기준과 차이를 다시 보여준다
-      setError(`${res.message} (${res.code})`)
+    const p = action === 'apply' ? (effectivePatch ?? undefined) : undefined
+    try {
+      const ev = await review({
+        requestId: requestIdFor(action, p),
+        utteranceId: utterance.utteranceId,
+        action,
+        expectedTaskVersion,
+        expectedResultRevision: result.revision,
+        confirmedByUser: action === 'apply' ? confirmed : true,
+        ...(p ? { patch: p } : {}),
+      })
+      setDone(action === 'apply' ? `작업 기준을 v${ev.taskVersionAfter}로 반영했습니다. 무전 송신이나 실제 작업 승인과는 별개입니다.` : action === 'dismiss' ? '관련 없음으로 표시했습니다. 원문과 분석 결과는 보존됩니다.' : '확인 표시를 남겼습니다. 작업 기준은 바뀌지 않았습니다.')
+      setManual(false)
       setConfirmed(false)
-      return
+    } catch (e) {
+      const { code, message } = describeError(e)
+      // VERSION_CONFLICT / RESULT_STALE: 자동 재시도하지 않고 최신 기준·결과를 다시 불러와 보여준다
+      setError(isStale(code) ? `${message} (${code}) — 최신 기준과 분석 결과를 다시 불러왔습니다. 내용을 확인한 뒤 다시 선택하세요.` : `${message} (${code})`)
+      if (isStale(code)) reload()
+      setConfirmed(false)
+    } finally {
+      setBusy(false)
     }
-    setDone(action === 'apply' ? `작업 기준을 v${res.value.taskVersionAfter}로 반영했습니다. 무전 송신이나 실제 작업 승인과는 별개입니다.` : action === 'dismiss' ? '관련 없음으로 표시했습니다. 원문과 분석 결과는 보존됩니다.' : '확인 표시를 남겼습니다. 작업 기준은 바뀌지 않았습니다.')
-    setManual(false)
-    setConfirmed(false)
   }
 
   return (
@@ -140,7 +163,7 @@ export function ReviewDetailPage() {
           <span className="mono">{formatMs(utterance.startMs)}</span>
           <ComparisonBadge kind={kind} />
           <ReviewBadge status={reviewStatus} />
-          {utterance.isFixture && <DemoBadge />}
+          {entry.fixture && <DemoBadge />}
           <span className="small" style={{ marginLeft: 'auto' }}>
             r{result.revision}
           </span>
@@ -150,7 +173,7 @@ export function ReviewDetailPage() {
         </div>
         <div className="small muted">
           {COMPARISON_HINT[kind]}
-          {result.comparison?.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => REASON_LABEL[r]).join(', ')}` : ''}
+          {result.comparison.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => REASON_LABEL[r]).join(', ')}` : ''}
         </div>
       </Card>
 
@@ -192,14 +215,14 @@ export function ReviewDetailPage() {
         </dl>
         {result.uncertainties.length > 0 && (
           <p className="small" style={{ marginBottom: 0 }}>
-            후보: {result.uncertainties.map((u) => `${u.field === 'terminalId' ? '터미널' : u.field === 'berthId' ? '선석' : '선박'} ${u.alternatives.join(' / ')}`).join(' · ')}
+            후보: {result.uncertainties.map((u) => `${UNC_FIELD[u.field]} ${u.alternatives.join(' / ')}`).join(' · ')}
             <br />
             <span className="muted">두 결과가 같아도 정답을 보장하지 않습니다. 필요하면 기존 무전기로 다시 물어보세요.</span>
           </p>
         )}
         <div className="compare-grid" style={{ marginTop: 12 }}>
-          <AudioButton utteranceId={utterance.utteranceId} variant="raw" label="원음 듣기" />
-          <AudioButton utteranceId={utterance.utteranceId} variant="enhanced" label="완화음 듣기" />
+          <AudioButton utteranceId={utterance.utteranceId} variant="raw" label="원음 듣기" wordAligned={Boolean(result.rawTranscript?.wordAligned)} />
+          <AudioButton utteranceId={utterance.utteranceId} variant="enhanced" label="완화음 듣기" wordAligned={Boolean(result.enhancedTranscript?.wordAligned)} />
         </div>
       </Card>
 
@@ -229,6 +252,7 @@ export function ReviewDetailPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div className="small muted">기록 반영: 확인한 장소로 작업 기준의 새 버전을 만듭니다.</div>
             {pending && <Notice tone="warn">원음 교차 검사가 끝나야 반영할 수 있습니다.</Notice>}
+            {!pending && notComplete && <Notice tone="warn">원음 교차 검사를 하지 못한 결과라 반영할 수 없습니다. 기존 무전기로 다시 확인하세요.</Notice>}
             {!active && <Notice tone="warn">등록된 작업이 없어 반영할 수 없습니다.</Notice>}
 
             {clearDifference && !manual && (
@@ -244,7 +268,7 @@ export function ReviewDetailPage() {
                   <label htmlFor="m-term">터미널</label>
                   <select id="m-term" value={patch.terminalId} onChange={(e) => setPatch({ terminalId: e.target.value, berthId: null })}>
                     <option value="">선택</option>
-                    {DEMO_CATALOG.terminals.map((t) => (
+                    {CATALOG.terminals.map((t) => (
                       <option key={t.terminalId}>{t.terminalId}</option>
                     ))}
                   </select>
@@ -254,19 +278,21 @@ export function ReviewDetailPage() {
                   <select id="m-berth" value={patch.berthId ?? ''} disabled={!manualTerminal} onChange={(e) => setPatch((p) => ({ ...p, berthId: e.target.value || null }))}>
                     <option value="">선택</option>
                     {manualTerminal?.berths.map((b) => (
-                      <option key={b}>{b}</option>
+                      <option key={b.berthId} value={b.berthId}>
+                        {b.label}
+                      </option>
                     ))}
                   </select>
                 </div>
               </div>
             ) : (
-              <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setManual(true)} disabled={pending}>
+              <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setManual(true)} disabled={notComplete}>
                 장소 직접 선택
               </button>
             )}
 
             <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44 }}>
-              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} style={{ width: 22, height: 22 }} disabled={pending || !patchValid} />
+              <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} style={{ width: 22, height: 22 }} disabled={notComplete || !patchValid} />
               교신 내용을 직접 확인했고 이 장소로 기록을 바꿉니다
             </label>
             <button className="btn primary" disabled={busy || !canApply} onClick={() => void act('apply')}>

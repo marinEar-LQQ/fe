@@ -1,4 +1,4 @@
-import type { LangCode } from './types'
+import { migrateLangCode, type LangCode } from 'marinear-engine'
 
 export const LANGS: { code: LangCode; label: string; native: string; tier: 'source' | 'primary' | 'support' | 'extension' }[] = [
   { code: 'ko', label: '한국어 (원문만)', native: '한국어', tier: 'source' },
@@ -9,11 +9,9 @@ export const LANGS: { code: LangCode; label: string; native: string; tier: 'sour
   { code: 'vi', label: '베트남어', native: 'Tiếng Việt', tier: 'extension' },
 ]
 
-/** 기존 시안의 tl 코드는 fil 로 마이그레이션 */
+/** 기존 시안의 tl 코드는 fil 로 마이그레이션 (엔진 migrateLangCode 와 같은 규칙) */
 export function normalizeLang(code: string | null | undefined): LangCode {
-  if (code === 'tl') return 'fil'
-  const found = LANGS.find((l) => l.code === code)
-  return found ? found.code : 'ko'
+  return (code && migrateLangCode(code)) || 'ko'
 }
 
 export function langLabel(code: LangCode): string {

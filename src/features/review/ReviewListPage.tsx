@@ -1,35 +1,41 @@
+import type { ReviewState } from 'marinear-engine'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
-import type { MessageEntry } from '../../app/state'
+import { describeError } from '../../app/errors'
+import { entryFromLog, type MessageEntry } from '../../app/state'
 import { needsReview } from '../../contracts/labels'
-import type { ReviewStatus } from '../../contracts/types'
 import { EmptyState, Segmented } from '../../ui/components'
 import { UtteranceCard } from '../radio/UtteranceCard'
 
 type Tab = 'pending' | 'done'
 
 export function ReviewListPage() {
-  const { state, engine } = useApp()
+  const { state, engine, dispatch } = useApp()
   const [tab, setTab] = useState<Tab>('pending')
-  const [stored, setStored] = useState<{ entry: MessageEntry; review: ReviewStatus }[]>([])
+  const [stored, setStored] = useState<{ entry: MessageEntry; review: ReviewState }[]>([])
   const task = state.taskState.active
 
   // 이전 세션의 재확인 대상도 저장된 기록에서 불러온다
   useEffect(() => {
     if (!task) return
-    engine.getTaskLog(task.taskId).then((r) => {
-      if (r.ok) setStored(r.value.utterances.map((u) => ({ entry: { utterance: u.utterance, result: u.result, partialText: null }, review: u.review })))
-    })
-  }, [engine, task, state.reviewState, state.messageState.order.length])
+    engine.getTaskLog(task.taskId).then(
+      (log) => setStored(log.utterances.map((u) => ({ entry: entryFromLog(u, log.sessions), review: u.reviewState }))),
+      (e) => dispatch({ type: 'error', ...describeError(e) }),
+    )
+  }, [engine, dispatch, task, state.reviewState, state.messageState.order.length])
 
-  const merged = new Map<string, { entry: MessageEntry; review: ReviewStatus }>()
+  const merged = new Map<string, { entry: MessageEntry; review: ReviewState }>()
   for (const s of stored) merged.set(s.entry.utterance.utteranceId, s)
   for (const id of state.messageState.order) {
     const entry = state.messageState.byId[id]
-    if (entry.result) merged.set(id, { entry, review: state.reviewState[id] ?? merged.get(id)?.review ?? 'unreviewed' })
+    const prev = merged.get(id)
+    // 저장본이 더 최신 revision 이면 저장본 유지
+    if (entry.result && !(prev?.entry.result && prev.entry.result.revision > entry.result.revision))
+      merged.set(id, { entry, review: state.reviewState[id] ?? prev?.review ?? 'unreviewed' })
+    else if (prev && state.reviewState[id]) merged.set(id, { ...prev, review: state.reviewState[id] })
   }
-  const all = [...merged.values()].filter((m) => needsReview(m.entry.result?.comparison?.kind))
+  const all = [...merged.values()].filter((m) => needsReview(m.entry.result?.comparison.kind))
   const pending = all.filter((m) => m.review === 'unreviewed')
   const done = all.filter((m) => m.review !== 'unreviewed')
   const list = (tab === 'pending' ? pending : done).sort((a, b) => b.entry.utterance.capturedAt.localeCompare(a.entry.utterance.capturedAt))

@@ -1,6 +1,9 @@
-import type { ComparisonKind, ReasonCode, ReviewStatus, TranslationStatus } from './types'
+import type { AnalysisStage, AssetStatus, ComparisonKind, LangAvailability, ReasonCode, ReviewState, TranslationStatus } from 'marinear-engine'
 
-/** 상태는 색상만으로 구분하지 않고 항상 텍스트 라벨을 함께 쓴다 */
+/**
+ * 화면용 라벨. 타입·계약은 marinear-engine 이 원본이고 여기엔 표시 문구만 둔다.
+ * 상태는 색상만으로 구분하지 않고 항상 텍스트 라벨을 함께 쓴다.
+ */
 export const COMPARISON_LABEL: Record<ComparisonKind, string> = {
   match: '일치',
   difference: '장소 차이',
@@ -20,16 +23,23 @@ export const COMPARISON_HINT: Record<ComparisonKind, string> = {
 export const REASON_LABEL: Record<ReasonCode, string> = {
   ASR_DISAGREEMENT: '원음·완화음 인식 결과가 다름',
   TERMINAL_MISSING: '터미널 언급 없음',
-  VESSEL_UNCLEAR: '선박 미확정',
+  BERTH_MISSING: '선석 언급 없음',
+  VESSEL_MISSING: '선박 언급 없음',
+  VESSEL_AMBIGUOUS: '선박 후보 여러 개',
+  MULTIPLE_CANDIDATES: '장소 후보 여러 개',
+  CORRECTION_UNCLEAR: '정정 내용 불명확',
+  CATALOG_UNKNOWN: '카탈로그에 없는 장소',
+  BERTH_NOT_IN_TERMINAL: '해당 터미널에 없는 선석',
+  NUMBER_TYPE_UNCLEAR: '숫자 의미 불명확',
+  OTHER_VESSEL: '다른 선박 교신',
+  LOCATION_DIFFERS: '장소가 기준과 다름',
+  LOCATION_MATCHES: '장소가 기준과 같음',
   NO_TASK: '등록된 작업 없음',
-  NOT_IN_CATALOG: '카탈로그에 없는 장소',
-  SILENCE: '무음',
-  CLIPPING: '입력 포화',
-  AUDIO_GAP: '입력 누락 구간',
   CROSS_CHECK_PENDING: '원음 교차 검사 중',
+  AUDIO_QUALITY: '음질 문제',
 }
 
-export const REVIEW_LABEL: Record<ReviewStatus, string> = {
+export const REVIEW_LABEL: Record<ReviewState, string> = {
   unreviewed: '미확인',
   reviewed: '확인함',
   dismissed: '관련 없음',
@@ -37,12 +47,40 @@ export const REVIEW_LABEL: Record<ReviewStatus, string> = {
 }
 
 export const TRANSLATION_STATUS_LABEL: Record<TranslationStatus, string> = {
-  loading: '번역 중…',
+  pending: '번역 중…',
   ready: '번역 완료',
-  unsupported: '지원하지 않는 언어',
-  'not-installed': '번역 자원 미설치 · 설정에서 다운로드 필요',
+  needs_check: '번역 확인 필요 · 코드/숫자가 바뀌었을 수 있음',
   failed: '번역 실패 · 한국어 원문을 확인하세요',
-  'needs-check': '번역 확인 필요 · 코드/숫자가 바뀌었을 수 있음',
+  unavailable: '번역 자원 없음 · 한국어 원문을 확인하세요',
+}
+
+export const LANG_AVAILABILITY_LABEL: Record<LangAvailability, string> = {
+  source: '원문',
+  ready: '사용 가능',
+  not_installed: '번역 자원 미설치 · 설정에서 다운로드 필요',
+  unsupported: '지원하지 않는 언어',
+}
+
+/** 카드에 보여줄 분석 진행 단계 */
+export const STAGE_LABEL: Record<AnalysisStage | 'done', string> = {
+  queued: '분석 대기',
+  segmenting: '발화 분리 중',
+  enhancing: '잡음 완화 중',
+  asr_enhanced: '완화음 인식 중',
+  asr_raw: '원음 교차 인식 중',
+  extracting: '장소·선박 추출 중',
+  comparing: '기준과 비교 중',
+  failed: '분석 실패 · 원음은 보존됨',
+  done: '분석 완료',
+}
+
+export const ASSET_STATUS_LABEL: Record<AssetStatus, string> = {
+  missing: '다운로드 필요',
+  downloading: '다운로드 중',
+  verifying: '검증 중',
+  ready: '준비됨',
+  integrity_failed: '검증 실패',
+  error: '오류',
 }
 
 /** 재확인 대상 판정 */

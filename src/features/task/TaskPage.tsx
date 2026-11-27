@@ -1,15 +1,16 @@
+import type { TaskDraft, TaskVersion } from 'marinear-engine'
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
-import { DEMO_CATALOG, findTerminal, validatePlace } from '../../contracts/catalog'
+import { describeError, isStale } from '../../app/errors'
+import { CATALOG, findTerminal, validateDraft } from '../../contracts/catalog'
 import { formatClock } from '../../contracts/labels'
-import type { TaskDraft, TaskVersion } from '../../contracts/types'
 import { Badge, Card, DemoBadge, Notice } from '../../ui/components'
 
 const EMPTY: TaskDraft = { ownVessel: '', targetVessel: '', terminalId: null, berthId: null, note: '' }
 
 export function TaskPage() {
-  const { state, saveTask, engine } = useApp()
+  const { state, saveTask, engine, dispatch } = useApp()
   const active = state.taskState.active
   const navigate = useNavigate()
   const [draft, setDraft] = useState<TaskDraft>(EMPTY)
@@ -26,10 +27,13 @@ export function TaskPage() {
 
   useEffect(() => {
     if (!active) return setHistory([])
-    engine.getTaskLog(active.taskId).then((r) => r.ok && setHistory([...r.value.versions].reverse()))
-  }, [engine, active])
+    engine.getTaskLog(active.taskId).then(
+      (log) => setHistory([...log.versions].reverse()),
+      (e) => dispatch({ type: 'error', ...describeError(e) }),
+    )
+  }, [engine, dispatch, active])
 
-  const terminal = findTerminal(DEMO_CATALOG, draft.terminalId)
+  const terminal = findTerminal(CATALOG, draft.terminalId)
   const dirty =
     !active ||
     draft.ownVessel !== active.ownVessel ||
@@ -46,22 +50,23 @@ export function TaskPage() {
 
   async function onSubmit(ev: FormEvent) {
     ev.preventDefault()
-    const next: typeof errors = {}
-    if (!draft.ownVessel.trim()) next.ownVessel = '내 배 이름을 입력하세요.'
-    if (!draft.targetVessel.trim()) next.targetVessel = '대상 선박을 입력하세요.'
-    const place = validatePlace(DEMO_CATALOG, draft.terminalId, draft.berthId)
-    if (!place.ok) next[place.field] = place.message
-    if (!draft.berthId && !next.terminalId) next.berthId = '선석을 선택하세요.'
+    const next = validateDraft(draft)
     setErrors(next)
     if (Object.keys(next).length) return
 
     setSaving(true)
     setSaveError(null)
-    const res = await saveTask(draft)
-    setSaving(false)
-    // 저장 성공 후에만 기준이 바뀐다 (task.updated 이벤트로 반영)
-    if (!res.ok) return setSaveError(`${res.message} (${res.code})`)
-    setSaved(true)
+    try {
+      // 저장 성공 후에만 기준이 바뀐다 (task.updated 이벤트로 반영)
+      await saveTask(draft)
+      setSaved(true)
+    } catch (e) {
+      const { code, message } = describeError(e)
+      // VERSION_CONFLICT: 자동 재시도하지 않는다. 최신 기준이 위 '현재 기준'에 표시된다.
+      setSaveError(isStale(code) ? `${message} (${code}) — 다른 곳에서 기준이 바뀌었습니다. 현재 기준을 확인한 뒤 다시 저장하세요.` : `${message} (${code})`)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -96,7 +101,7 @@ export function TaskPage() {
             )}
             <dt>등록</dt>
             <dd className="small">
-              {formatClock(active.createdAt)} · {active.origin === 'review-apply' ? '교신 확인 후 반영' : '직접 등록'}
+              {formatClock(active.createdAt)} · {active.sourceReviewEventId ? '교신 확인 후 반영' : '직접 등록'}
             </dd>
           </dl>
         </Card>
@@ -105,7 +110,7 @@ export function TaskPage() {
       <Card>
         <div className="card-title-row">
           <h2>{active ? '기준 수정' : '작업 등록'}</h2>
-          {DEMO_CATALOG.isDemo && <DemoBadge label="시연용 장소 목록" />}
+          {CATALOG.kind === 'demo' && <DemoBadge label="시연용 장소 목록" />}
         </div>
         <form onSubmit={onSubmit} noValidate className="form-grid">
           <div className={`field ${errors.ownVessel ? 'invalid' : ''}`}>
@@ -122,7 +127,7 @@ export function TaskPage() {
             <label htmlFor="terminal">터미널</label>
             <select id="terminal" value={draft.terminalId ?? ''} onChange={(e) => set('terminalId', e.target.value || null)} aria-invalid={!!errors.terminalId}>
               <option value="">선택</option>
-              {DEMO_CATALOG.terminals.map((t) => (
+              {CATALOG.terminals.map((t) => (
                 <option key={t.terminalId} value={t.terminalId}>
                   {t.displayName}
                 </option>
@@ -135,8 +140,8 @@ export function TaskPage() {
             <select id="berth" value={draft.berthId ?? ''} onChange={(e) => set('berthId', e.target.value || null)} disabled={!terminal} aria-invalid={!!errors.berthId}>
               <option value="">{terminal ? '선택' : '터미널 먼저 선택'}</option>
               {terminal?.berths.map((b) => (
-                <option key={b} value={b}>
-                  {b}
+                <option key={b.berthId} value={b.berthId}>
+                  {b.label}
                 </option>
               ))}
             </select>
@@ -177,7 +182,7 @@ export function TaskPage() {
                   <div className="t-title">
                     v{v.version} · {v.terminalId} {v.berthId}
                   </div>
-                  <div className="t-detail">{v.origin === 'review-apply' ? '교신 확인 후 반영' : '직접 등록'}</div>
+                  <div className="t-detail">{v.sourceReviewEventId ? '교신 확인 후 반영' : '직접 등록'}</div>
                 </div>
               </li>
             ))}

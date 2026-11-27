@@ -1,26 +1,50 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react'
+import { analyzeFile, type EngineClient, type LangCode, type ReviewCommand, type ReviewEvent, type SaveTaskResult, type TaskDraft } from 'marinear-engine'
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { CaptureError, startCapture, type CaptureHandle } from '../audio/capture'
-import type { LangCode, ReviewCommand, TaskDraft } from '../contracts/types'
-import { createEngine, type EngineClient } from '../engine'
+import { createEngine, type EngineKind, type EngineSetup } from '../engine'
+import type { DemoControls } from '../engine/demo'
+import { markDisconnected } from '../engine/extensions'
+import { restoreActiveTask } from '../engine/restore'
+import { describeError } from './errors'
 import { initialState, loadPreferences, reducer, translationKey, type Action, type AppState } from './state'
 
 interface AppApi {
   state: AppState
   dispatch: React.Dispatch<Action>
   engine: EngineClient
+  engineKind: EngineKind
+  /** Mock 엔진일 때만 시연 시나리오를 쓸 수 있다 */
+  demoAvailable: boolean
   startDemo: () => Promise<void>
   startFile: (file: File) => Promise<void>
   startLive: () => Promise<void>
   stop: () => Promise<void>
-  saveTask: (draft: TaskDraft) => ReturnType<EngineClient['saveTask']>
-  review: (cmd: ReviewCommand) => ReturnType<EngineClient['reviewUtterance']>
+  /** 실패 시 EngineError 를 던진다 (VERSION_CONFLICT 등은 호출부에서 자동 재시도 금지) */
+  saveTask: (draft: TaskDraft) => Promise<SaveTaskResult>
+  review: (cmd: ReviewCommand) => Promise<ReviewEvent>
+  refreshReadiness: () => Promise<void>
   setLang: (lang: LangCode) => void
 }
 
 const Ctx = createContext<AppApi | null>(null)
 
-export function AppProvider({ children, engine: injected }: { children: ReactNode; engine?: EngineClient }) {
-  const engine = useMemo(() => injected ?? createEngine(), [injected])
+export function AppProvider({ children, engine: injected }: { children: ReactNode; engine?: EngineSetup }) {
+  const [setup, setSetup] = useState<EngineSetup | null>(injected ?? null)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (injected) return
+    createEngine().then(setSetup, (e) => setFailure(describeError(e).message))
+  }, [injected])
+
+  if (failure) return <div className="page"><div className="notice danger" role="alert">분석 엔진을 시작하지 못했습니다: {failure}</div></div>
+  if (!setup) return <div className="page"><div className="card empty" role="status"><strong>분석 엔진 준비 중…</strong></div></div>
+  return <EngineProvider setup={setup}>{children}</EngineProvider>
+}
+
+function EngineProvider({ setup, children }: { setup: EngineSetup; children: ReactNode }) {
+  const engine = setup.client
+  const demo: DemoControls | null = setup.demo
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(loadPreferences()))
   const captureRef = useRef<CaptureHandle | null>(null)
   const stateRef = useRef(state)
@@ -28,13 +52,32 @@ export function AppProvider({ children, engine: injected }: { children: ReactNod
     stateRef.current = state
   }, [state])
 
+  const fail = useCallback((e: unknown) => {
+    const { code, message } = describeError(e)
+    dispatch({ type: 'error', code, message })
+  }, [])
+
+  const refreshReadiness = useCallback(async () => {
+    try {
+      dispatch({ type: 'readiness', readiness: await engine.checkReadiness() })
+    } catch (e) {
+      fail(e)
+    }
+  }, [engine, fail])
+
   // 엔진 이벤트 구독 + 초기 상태 복원
   useEffect(() => {
     const unsub = engine.subscribe((event) => dispatch({ type: 'engine-event', event }))
-    engine.getActiveTask().then((task) => dispatch({ type: 'task-loaded', task }))
-    engine.checkReadiness().then((readiness) => dispatch({ type: 'readiness', readiness }))
+    restoreActiveTask(engine).then(
+      (task) => dispatch({ type: 'task-loaded', task }),
+      (e) => {
+        fail(e)
+        dispatch({ type: 'task-loaded', task: null })
+      },
+    )
+    void refreshReadiness()
     return unsub
-  }, [engine])
+  }, [engine, fail, refreshReadiness])
 
   // 선호 설정 저장 (작은 설정값만 localStorage)
   useEffect(() => {
@@ -42,95 +85,160 @@ export function AppProvider({ children, engine: injected }: { children: ReactNod
     document.documentElement.dataset.largeText = String(state.preferences.largeText)
   }, [state.preferences])
 
-  // 선택 언어의 번역이 없는 최종 결과에 번역 요청 (해당 원문 revision 기준)
+  // 선택 언어 번역: 원음 교차 검사가 끝난 최신 revision 에 대해서만 요청한다 (결과는 그 revision 에 묶인다)
   useEffect(() => {
     const lang = state.preferences.targetLang
     if (lang === 'ko') return
+    const availability = state.engineState.readiness?.languages[lang]
+    if (availability !== 'ready') return // 미설치 언어는 요청하지 않고 화면에서 안내
     for (const id of state.messageState.order) {
       const r = state.messageState.byId[id]?.result
-      if (!r) continue
+      if (!r || r.crossCheck === 'pending') continue
       const key = translationKey(id, r.revision, lang)
-      if (!state.translations[key]) {
-        dispatch({
-          type: 'engine-event',
-          event: { schemaVersion: 1, eventId: `local-${key}`, seq: 0, type: 'translation.updated', payload: { utteranceId: id, sourceRevision: r.revision, targetLang: lang, status: 'loading', text: null, protectedTokens: [], modelVersion: null } },
-        })
-        void engine.requestTranslation(id, r.revision, lang)
-      }
+      if (state.translations[key]) continue
+      const base = { utteranceId: id, sourceRevision: r.revision, targetLang: lang, text: null, protectedTokens: [], modelVersion: null, createdAt: new Date().toISOString() }
+      dispatch({ type: 'translation', translation: { ...base, status: 'pending', issues: [] } })
+      engine.requestTranslation(id, r.revision, lang).then(
+        (translation) => dispatch({ type: 'translation', translation }),
+        (e) => {
+          const { code, message } = describeError(e)
+          dispatch({ type: 'translation', translation: { ...base, status: code === 'TRANSLATION_UNAVAILABLE' ? 'unavailable' : 'failed', issues: [message] } })
+        },
+      )
     }
-  }, [engine, state.messageState, state.preferences.targetLang, state.translations])
+  }, [engine, state.messageState, state.preferences.targetLang, state.translations, state.engineState.readiness])
 
   const stop = useCallback(async () => {
-    const { sessionId } = stateRef.current.session
+    const { sessionId, source } = stateRef.current.session
     if (captureRef.current) {
       await captureRef.current.stop()
       captureRef.current = null
     }
-    if (sessionId) await engine.closeSession(sessionId)
+    // 파일·시연은 엔진 헬퍼가 세션을 직접 닫는다
+    if (sessionId && source === 'live') {
+      try {
+        await engine.closeSession(sessionId)
+      } catch (e) {
+        fail(e)
+      }
+    }
     dispatch({ type: 'session', sessionId: null, source: null })
     dispatch({ type: 'input', status: 'idle' })
-  }, [engine])
+  }, [engine, fail])
 
-  const open = useCallback(
-    async (source: 'demo' | 'file', file?: File) => {
+  const startDemo = useCallback(async () => {
+    if (!demo) return
+    await stop()
+    dispatch({ type: 'clear-messages' })
+    dispatch({ type: 'session', sessionId: null, source: 'demo' })
+    try {
+      const task = await demo.ensureDemoTask()
+      dispatch({ type: 'task-loaded', task })
+      await demo.playScenario(task.taskId)
+    } catch (e) {
+      fail(e)
+    } finally {
+      dispatch({ type: 'session', sessionId: null, source: null })
+    }
+  }, [demo, stop, fail])
+
+  const startFile = useCallback(
+    async (file: File) => {
+      const task = stateRef.current.taskState.active
+      if (!task) return
       await stop()
       dispatch({ type: 'clear-messages' })
-      const taskId = stateRef.current.taskState.active?.taskId ?? null
-      const res = await engine.openSession(taskId, source, file)
-      if (!res.ok) return dispatch({ type: 'error', code: res.code, message: res.message })
-      dispatch({ type: 'session', sessionId: res.value.sessionId, source })
+      dispatch({ type: 'session', sessionId: null, source: 'file' })
+      try {
+        // 파일 디코딩 → AudioFrame → 실시간과 같은 엔진 경로. 결과는 subscribe 이벤트로 도착한다.
+        await analyzeFile(engine, task.taskId, file)
+      } catch (e) {
+        fail(e)
+      } finally {
+        dispatch({ type: 'session', sessionId: null, source: null })
+      }
     },
-    [engine, stop],
+    [engine, stop, fail],
   )
 
   const startLive = useCallback(async () => {
+    const task = stateRef.current.taskState.active
+    if (!task) return
     await stop()
     dispatch({ type: 'input', status: 'requesting' })
-    const taskId = stateRef.current.taskState.active?.taskId ?? null
     let sessionId: string | null = null
+    // 세션 기준으로 seq/startMs 를 다시 매긴다 (세션이 열리기 전 프레임은 버림)
+    let seq = 0
+    let samples = 0
     try {
       const handle = await startCapture(stateRef.current.preferences.inputDeviceId, {
         onFrame: (frame, level) => {
-          if (sessionId) engine.appendAudio(sessionId, { ...frame, sessionId })
           dispatch({ type: 'input-level', level: level.rms })
+          if (!sessionId) return
+          const length = frame.pcm.length // transfer 전에 길이를 읽는다
+          const startMs = Math.round((samples / frame.sampleRate) * 1000)
+          samples += length
+          // pcm 버퍼는 Worker 로 transfer 된다 — 이 호출 뒤 frame.pcm 을 다시 쓰지 않는다
+          engine.appendAudio(sessionId, { ...frame, sessionId, seq: seq++, startMs }).catch(fail)
         },
         onDisconnected: (reason) => {
           dispatch({ type: 'input', status: 'disconnected', detail: reason })
           dispatch({ type: 'error', code: 'INPUT_DISCONNECTED', message: `${reason} 수신을 중단했습니다. 장치를 다시 연결한 뒤 수신 시작을 누르세요.` })
           captureRef.current = null
-          if (sessionId) void engine.closeSession(sessionId)
+          const sid = sessionId
+          sessionId = null
+          if (sid) {
+            void markDisconnected(engine, sid)
+              .then(() => engine.closeSession(sid))
+              .catch(fail)
+          }
           dispatch({ type: 'session', sessionId: null, source: null })
         },
       })
       captureRef.current = handle
-      const res = await engine.openSession(taskId, 'live')
-      if (!res.ok) {
+      try {
+        const settings = handle.info.appliedSettings
+        // 브라우저 자동 처리 실제 적용값 기록 (echoCancellation 은 일부 브라우저에서 문자열일 수 있음)
+        const flag = (v: unknown) => (typeof v === 'boolean' ? v : undefined)
+        const session = await engine.openSession(task.taskId, 'live', {
+          deviceLabel: handle.info.label,
+          sampleRate: handle.info.sampleRate,
+          appliedSettings: { noiseSuppression: flag(settings.noiseSuppression), autoGainControl: flag(settings.autoGainControl), echoCancellation: flag(settings.echoCancellation) },
+        })
+        sessionId = session.sessionId
+      } catch (e) {
         await handle.stop()
         captureRef.current = null
-        dispatch({ type: 'input', status: 'error', detail: res.message })
+        const { code, message } = describeError(e)
+        dispatch({ type: 'input', status: 'error', detail: `${message} (${code})` })
         return
       }
-      sessionId = res.value.sessionId
       dispatch({ type: 'session', sessionId, source: 'live' })
       dispatch({ type: 'input', status: 'capturing', detail: `${handle.info.label || '기본 입력'} · ${handle.info.sampleRate} Hz` })
     } catch (err) {
       const message = err instanceof CaptureError ? err.message : `음성 입력 오류: ${(err as Error).message}`
       dispatch({ type: 'input', status: 'error', detail: message })
     }
-  }, [engine, stop])
+  }, [engine, stop, fail])
 
-  const api: AppApi = {
-    state,
-    dispatch,
-    engine,
-    startDemo: () => open('demo'),
-    startFile: (file) => open('file', file),
-    startLive,
-    stop,
-    saveTask: (draft) => engine.saveTask(draft, stateRef.current.taskState.active?.version),
-    review: (cmd) => engine.reviewUtterance(cmd),
-    setLang: (lang) => dispatch({ type: 'set-pref', prefs: { targetLang: lang } }),
-  }
+  const api = useMemo<AppApi>(
+    () => ({
+      state,
+      dispatch,
+      engine,
+      engineKind: setup.kind,
+      demoAvailable: demo !== null,
+      startDemo,
+      startFile,
+      startLive,
+      stop,
+      saveTask: (draft) => engine.saveTask(draft, stateRef.current.taskState.active?.version),
+      review: (cmd) => engine.reviewUtterance(cmd),
+      refreshReadiness,
+      setLang: (lang) => dispatch({ type: 'set-pref', prefs: { targetLang: lang } }),
+    }),
+    [state, engine, setup.kind, demo, startDemo, startFile, startLive, stop, refreshReadiness],
+  )
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
 }

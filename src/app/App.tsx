@@ -46,7 +46,7 @@ function BottomNav() {
   const { state } = useApp()
   const pending = state.messageState.order.filter((id) => {
     const r = state.messageState.byId[id]?.result
-    return r && needsReview(r.comparison?.kind) && (state.reviewState[id] ?? 'unreviewed') === 'unreviewed'
+    return r && needsReview(r.comparison.kind) && (state.reviewState[id] ?? 'unreviewed') === 'unreviewed'
   }).length
   const items = [
     { to: '/monitor', label: '교신', Icon: IconRadio },

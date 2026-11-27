@@ -180,6 +180,19 @@ export function SettingsPage() {
           </button>
         )}
         {persistMsg && <p className="small muted">{persistMsg}</p>}
+        {/* 기록 초기화: 이 기기에 쌓인 작업·교신·일지를 지우고 처음 상태(기본 기록)로 다시 연다 */}
+        <button
+          className="btn sm"
+          style={{ alignSelf: 'flex-start', marginTop: 8 }}
+          onClick={() => {
+            if (!window.confirm(t.settings.resetConfirm)) return
+            localStorage.setItem('marinear.resetOnLoad', '1')
+            window.location.assign('/')
+          }}
+        >
+          {t.settings.reset}
+        </button>
+        <p className="small muted">{t.settings.resetHint}</p>
       </Card>
 
       {/* 앱 설치 */}

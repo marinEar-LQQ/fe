@@ -5,7 +5,6 @@ import { listAudioInputs } from '../../audio/capture'
 import { LANGS } from '../../contracts/lang'
 import { useT } from '../../i18n'
 import { Card, Switch } from '../../ui/components'
-import { DemoPrepPanel } from './DemoPrepPanel'
 import { EnginePanel } from './EnginePanel'
 import { useEngineModeLabel } from './online'
 
@@ -149,7 +148,6 @@ export function SettingsPage() {
         </div>
       </Card>
 
-      <DemoPrepPanel />
 
       {/* 저장 공간 */}
       <Card>

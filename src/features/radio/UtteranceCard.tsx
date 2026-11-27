@@ -5,10 +5,10 @@ import { translationKey, type MessageEntry } from '../../app/state'
 import { formatClock, needsReview } from '../../contracts/labels'
 import { extraEntities } from '../../engine/entities'
 import { correctionInfo } from '../../engine/report'
-import { formatReason, headline } from '../../engine/transcript'
+import { headline } from '../../engine/transcript'
 import { useT } from '../../i18n'
 import { Badge, DemoBadge, IconPlay, KIND_MARK, ReviewBadge, StatusLabel, StatusMark } from '../../ui/components'
-import { TranscriptNotes, TranscriptView } from './Transcript'
+import { TranscriptView } from './Transcript'
 import { TranslationBlock } from './TranslationBlock'
 import { useClipPlayer } from './useClipPlayer'
 
@@ -103,7 +103,6 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
   const attention = needsReview(kind)
   const translation = lang !== 'ko' ? state.translations[translationKey(utterance.utteranceId, result.revision, lang)] : undefined
   const availability = state.engineState.readiness?.languages[lang]
-  const reasons = result.comparison.reasonCodes.filter((r) => r !== 'LOCATION_MATCHES')
   const playMsg = player.msgFor(utterance.utteranceId)
 
   return (
@@ -117,7 +116,6 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
       <p className="utt-text" lang="ko">
         <TranscriptView result={result} highlight={kind === 'difference' ? heardDiffValues(result) : []} />
       </p>
-      <TranscriptNotes result={result} soft={!attention} />
       <EntityChips result={result} />
       <ResultFlags result={result} />
 
@@ -128,7 +126,6 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
         {attention && <ReviewBadge status={review} />}
         {entry.fixture && <DemoBadge />}
       </div>
-      {attention && reasons.length > 0 && <p className="small muted">{reasons.map((r) => formatReason(r, result, t)).join(' · ')}</p>}
 
       {lang !== 'ko' && <TranslationBlock lang={lang} translation={translation} crossCheckPending={result.crossCheck === 'pending'} availability={availability} />}
 

@@ -50,13 +50,9 @@ export function ReviewBadge({ status }: { status: ReviewState }) {
   return <Badge tone={REVIEW_TONE[status]}>{t.review[status]}</Badge>
 }
 
-export function DemoBadge({ label }: { label?: string }) {
-  const t = useT()
-  return (
-    <Badge tone="demo" title={t.common.demoDataHint}>
-      {label ?? t.common.demoData}
-    </Badge>
-  )
+/** 시연 데이터 표시는 화면에서 뺐다 (2026-11-28 팀 결정: 시연 영상은 실제 앱 구동을 녹화). 쓰는 곳은 남겨 두고 아무것도 그리지 않는다 */
+export function DemoBadge(_props: { label?: string }) {
+  return null
 }
 
 const INPUT_TONE: Record<UiInputStatus, Tone> = { idle: 'muted', requesting: 'info', capturing: 'ok', disconnected: 'danger', error: 'danger' }

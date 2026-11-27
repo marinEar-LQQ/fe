@@ -242,7 +242,7 @@ export function EnginePanel() {
               <span>{t.engineSettings.catalog}</span>
               <strong className="mono small">
                 {readiness.catalog.catalogVersion}
-                {readiness.catalog.kind === 'demo' ? ` · ${t.engineSettings.catalogDemo}` : ''}
+                
               </strong>
             </div>
           )}

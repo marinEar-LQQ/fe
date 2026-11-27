@@ -11,7 +11,7 @@ import { formatAlternatives, headline } from '../../engine/transcript'
 import { useT } from '../../i18n'
 import { DemoBadge, EmptyState, IconCheck, IconPlay, KIND_MARK, Notice, PageHead, ReviewBadge, StatusLabel } from '../../ui/components'
 import { claimPlayback, releasePlayback } from '../../audio/exclusive'
-import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
+import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptView } from '../radio/Transcript'
 import { EntityChips, ResultFlags } from '../radio/UtteranceCard'
 import { useUtterance } from './useUtterance'
 
@@ -328,7 +328,6 @@ function ReviewDetail() {
             <p className="text" lang="ko">
               <EnhancedTranscriptLine result={result} />
             </p>
-            <TranscriptNotes result={result} />
           </section>
           <div className="btn-grid">
             <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.reviewDetail.rawClip} />
@@ -345,7 +344,6 @@ function ReviewDetail() {
           <p lang="ko" style={{ fontSize: 'var(--fs-lg)', fontWeight: 500, lineHeight: 1.45 }}>
             “<TranscriptView result={result} highlight={kind === 'difference' ? diffs.map((d) => d.heardValue ?? '').filter(Boolean) : []} />”
           </p>
-          <TranscriptNotes result={result} />
           <div>
             <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.clip.listen} />
           </div>

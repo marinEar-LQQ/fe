@@ -240,7 +240,6 @@ export function ReportPage() {
   const task = log.versions.find((v) => v.version === log.task.activeVersion) ?? log.versions[log.versions.length - 1]!
   const timeline = buildTimeline(log)
   const stats = reportStats(log)
-  const fixtureCount = timeline.filter((i) => i.kind === 'utterance' && i.entry.fixture).length
   const firstVersion = log.versions[0]
 
   async function saveMemo(): Promise<boolean> {
@@ -343,7 +342,6 @@ export function ReportPage() {
         </Link>
       )}
       <OutcomeSummary log={log} />
-      {fixtureCount > 0 && <p className="small muted">{t.report.fixtureNote(stats.utterances, fixtureCount)}</p>}
       <button type="button" className="link-row no-print" onClick={() => document.getElementById('past-logs')?.scrollIntoView({ behavior: 'smooth' })}>
         {t.report.pastTitle}
         <span aria-hidden="true">↓</span>

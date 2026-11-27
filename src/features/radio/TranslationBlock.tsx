@@ -1,7 +1,6 @@
 import type { LangAvailability, LangCode, Translation } from 'marinear-engine'
 import { translationView } from '../../engine/translationView'
 import { useT } from '../../i18n'
-import { Badge } from '../../ui/components'
 
 /**
  * 05 카드 안 번역 (한국어 원문은 카드 위에 따로 있다). 점선 아래:
@@ -36,11 +35,6 @@ export function TranslationBlock({ lang, translation, crossCheckPending, availab
               <dt>{translation?.summary?.lang === lang ? line.label : t.summaryField[line.field]}</dt>
               <dd>
                 {line.uncertain ? <span className="uncertain">{line.value}</span> : line.value}
-                {line.uncertain && (
-                  <Badge tone="warn" title={t.translation.notConfirmed}>
-                    {t.common.checkNeeded}
-                  </Badge>
-                )}
               </dd>
             </div>
           ))}

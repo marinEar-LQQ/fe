@@ -1,6 +1,6 @@
 import type { AnalysisResult, AnyEngineEvent, EngineEventType, EventPayloads, Readiness, Utterance } from 'marinear-engine'
 import { describe, expect, it } from 'vitest'
-import { applyEvent, engineStatus, initialState, reducer, translationKey, type AppState } from './state'
+import { applyEvent, engineStatus, initialState, reducer, translationKey, translationTargets, type AppState } from './state'
 
 const utt: Utterance = {
   utteranceId: 'u1',
@@ -141,5 +141,26 @@ describe('engineStatus', () => {
     const ready = reducer(initialState(), { type: 'readiness', readiness: readiness() })
     expect(engineStatus(run([queued()], ready))).toBe('processing')
     expect(engineStatus(run([queued(), ev('analysis.final', { result: result(2, 'done') })], ready))).toBe('ready')
+  })
+})
+
+describe('translationTargets', () => {
+  const ready = () => reducer(initialState(), { type: 'readiness', readiness: readiness() })
+
+  it('requests only results whose cross-check is no longer pending (complete or unavailable)', () => {
+    const pending = run([queued(), ev('analysis.final', { result: result(1, 'r1', 'pending') })], ready())
+    expect(translationTargets(pending, 'id')).toEqual([])
+    const unavailable = run([queued(), ev('analysis.final', { result: result(1, 'r1', 'unavailable') })], ready())
+    expect(translationTargets(unavailable, 'id')).toEqual([{ utteranceId: 'u1', revision: 1 }])
+    const complete = run([queued(), ev('analysis.final', { result: result(2, 'r2', 'complete') })], ready())
+    expect(translationTargets(complete, 'id')).toEqual([{ utteranceId: 'u1', revision: 2 }])
+  })
+
+  it('skips Korean, uninstalled languages and already requested revisions', () => {
+    const s = run([queued(), ev('analysis.final', { result: result(2, 'r2') })], ready())
+    expect(translationTargets(s, 'ko')).toEqual([])
+    expect(translationTargets(s, 'vi')).toEqual([]) // not_installed
+    const requested = reducer(s, { type: 'translation', translation: { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id', status: 'pending', text: null, protectedTokens: [], modelVersion: null, issues: [], createdAt: '' } })
+    expect(translationTargets(requested, 'id')).toEqual([])
   })
 })

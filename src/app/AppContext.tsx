@@ -6,7 +6,7 @@ import type { DemoControls } from '../engine/demo'
 import { markDisconnected } from '../engine/extensions'
 import { restoreActiveTask } from '../engine/restore'
 import { describeError } from './errors'
-import { initialState, loadPreferences, reducer, translationKey, type Action, type AppState } from './state'
+import { initialState, loadPreferences, reducer, translationTargets, type Action, type AppState } from './state'
 
 interface AppApi {
   state: AppState
@@ -127,20 +127,13 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     document.documentElement.dataset.largeText = String(state.preferences.largeText)
   }, [state.preferences])
 
-  // 선택 언어 번역: 원음 교차 검사가 끝난 최신 revision 에 대해서만 요청한다 (결과는 그 revision 에 묶인다)
+  // 선택 언어 번역: crossCheck !== 'pending' 인 최종 결과에 대해서만 요청한다 (결과는 그 revision 에 묶인다)
   useEffect(() => {
     const lang = state.preferences.targetLang
-    if (lang === 'ko') return
-    const availability = state.engineState.readiness?.languages[lang]
-    if (availability !== 'ready') return // 미설치 언어는 요청하지 않고 화면에서 안내
-    for (const id of state.messageState.order) {
-      const r = state.messageState.byId[id]?.result
-      if (!r || r.crossCheck === 'pending') continue
-      const key = translationKey(id, r.revision, lang)
-      if (state.translations[key]) continue
-      const base = { utteranceId: id, sourceRevision: r.revision, targetLang: lang, text: null, protectedTokens: [], modelVersion: null, createdAt: new Date().toISOString() }
+    for (const { utteranceId: id, revision } of translationTargets(state, lang)) {
+      const base = { utteranceId: id, sourceRevision: revision, targetLang: lang, text: null, protectedTokens: [], modelVersion: null, createdAt: new Date().toISOString() }
       dispatch({ type: 'translation', translation: { ...base, status: 'pending', issues: [] } })
-      engine.requestTranslation(id, r.revision, lang).then(
+      engine.requestTranslation(id, revision, lang).then(
         (translation) => dispatch({ type: 'translation', translation }),
         (e) => {
           const { code, message } = describeError(e)
@@ -148,7 +141,7 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
         },
       )
     }
-  }, [engine, state.messageState, state.preferences.targetLang, state.translations, state.engineState.readiness])
+  }, [engine, state])
 
   const stop = useCallback(async () => {
     const { sessionId, source } = stateRef.current.session

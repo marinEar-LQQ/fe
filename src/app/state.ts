@@ -253,6 +253,21 @@ export function entryFromLog(u: UtteranceLogEntry, sessions: Session[]): Message
   }
 }
 
+/** 번역을 요청할 결과: 이 언어가 설치되어 있고, 원음 교차 검사가 끝난(complete 또는 unavailable) 최신 revision 중 아직 요청하지 않은 것 */
+export function translationTargets(state: AppState, lang: LangCode): { utteranceId: string; revision: number }[] {
+  if (lang === 'ko') return []
+  if (state.engineState.readiness?.languages[lang] !== 'ready') return [] // 미설치 언어는 요청하지 않고 화면에서 안내
+  const out: { utteranceId: string; revision: number }[] = []
+  for (const id of state.messageState.order) {
+    const r = state.messageState.byId[id]?.result
+    // unavailable 이면 r2 가 오지 않으므로 그 결과로 번역한다
+    if (!r || r.crossCheck === 'pending') continue
+    if (state.translations[translationKey(id, r.revision, lang)]) continue
+    out.push({ utteranceId: id, revision: r.revision })
+  }
+  return out
+}
+
 const ACTIVE_STAGES = new Set<CardStage>(['queued', 'segmenting', 'enhancing', 'asr_enhanced', 'asr_raw', 'extracting', 'comparing'])
 
 /** 엔진 상태 표시: readiness + 진행 중인 발화로 계산 */

@@ -14,7 +14,9 @@ npm run build                  # 타입 검사 + 배포 빌드
 ```
 
 - 음성 입력(getUserMedia)은 **HTTPS 또는 localhost** 에서만 동작한다. 태블릿 실기기 테스트는 HTTPS 배포 주소로 한다.
-- `npm install` 은 `github:marinEar-LQQ/backend` 저장소에 접근할 수 있어야 한다.
+- `npm install` 은 `github:marinEar-LQQ/backend` 저장소에 접근할 수 있어야 한다. SSH 키는 필요 없다 — npm 은 GitHub 의존성을 `codeload.github.com` https tarball 로 받는다. 팀원은 `npm ci` 를 권장한다(lock 의 커밋 고정).
+- lock 의 `resolved` 는 `git+https://...` 로 두었지만, 다른 패키지를 `npm install` 하면 npm 이 GitHub 주소를 `git+ssh://` 로 다시 쓸 수 있다. 받는 방식은 위와 같아서 동작에는 영향이 없다. 커밋 전에 https 로 되돌리고 싶으면 `sed -i 's#git+ssh://git@github.com/#git+https://github.com/#' package-lock.json`.
+- 엔진 버전 올리기: `npm i github:marinEar-LQQ/backend` (lock 의 커밋이 최신으로 바뀐다).
 
 ### 시연 백업 (모델 없이)
 

@@ -14,6 +14,8 @@ interface AppApi {
   dispatch: React.Dispatch<Action>
   engine: EngineClient
   engineKind: EngineKind
+  /** 실행 중인 엔진에 적용된 오프라인 모드 (allowRemote:false) */
+  engineOffline: boolean
   /** Mock 엔진일 때만 시연 시나리오를 쓸 수 있다 */
   demoAvailable: boolean
   startDemo: () => Promise<void>
@@ -265,6 +267,7 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       dispatch,
       engine,
       engineKind: setup.kind,
+      engineOffline: setup.offlineMode,
       demoAvailable: demo !== null,
       startDemo,
       startFile,
@@ -276,7 +279,7 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       loadModels,
       setLang: (lang) => dispatch({ type: 'set-pref', prefs: { targetLang: lang } }),
     }),
-    [state, engine, setup.kind, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
+    [state, engine, setup.kind, setup.offlineMode, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
   )
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>

@@ -1,8 +1,9 @@
 import { DEFAULT_ASSET_MANIFEST, type AssetStatus, type LoadProgress, type ModelRole, type Readiness } from 'marinear-engine'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { engineStatus } from '../../app/state'
+import { getOfflineModePref, setOfflineModePref } from '../../engine'
 import { LANGS } from '../../contracts/lang'
 import { ASSET_STATUS_LABEL, LANG_AVAILABILITY_LABEL } from '../../contracts/labels'
 import { Badge, Card, EngineBadge, Notice } from '../../ui/components'
@@ -42,7 +43,10 @@ function rows(readiness: Readiness | null, progress: Record<string, LoadProgress
 }
 
 export function EnginePanel() {
-  const { state, engineKind, loadModels, refreshReadiness } = useApp()
+  const { state, engineKind, engineOffline, loadModels, refreshReadiness } = useApp()
+  const [offlinePref, setOfflinePref] = useState(getOfflineModePref)
+  const needsReload = engineKind === 'worker' && offlinePref !== engineOffline
+  const liveRunning = state.session.source !== null
   const { readiness } = state.engineState
   const { loading, progress, error } = state.assets
   const list = rows(readiness, progress, loading)
@@ -94,7 +98,45 @@ export function EnginePanel() {
         </div>
       )}
       {engineKind === 'worker' && !anyReady && !loading && (
-        <p className="small muted">처음 한 번은 음성인식·번역 모델(수백 MB 이상)을 내려받습니다. Wi-Fi 에서 받으세요. 받은 뒤에는 기기 안에서만 분석합니다.</p>
+        <p className="small muted">
+          처음 한 번은 모델 <b>약 565MB</b>(음성인식 whisper-small 약 250MB + 번역 Opus-MT 3개 약 315MB)를 내려받습니다. Wi-Fi 에서 받으세요. 받은 뒤에는 기기 안에서만 분석합니다.
+          {engineOffline && ' 지금은 오프라인 모드라 내려받을 수 없습니다 — 아래에서 끄고 새로고침하세요.'}
+        </p>
+      )}
+
+      {engineKind === 'worker' && (
+        <div style={{ margin: '0 0 12px' }}>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44 }}>
+            <input
+              type="checkbox"
+              checked={offlinePref}
+              onChange={(e) => {
+                setOfflineModePref(e.target.checked)
+                setOfflinePref(e.target.checked)
+              }}
+              style={{ width: 22, height: 22 }}
+            />
+            오프라인 모드 (현장용)
+            <span className={`badge ${engineOffline ? 'ok' : 'muted'}`}>{engineOffline ? '적용 중' : '꺼짐'}</span>
+          </label>
+          <p className="small muted" style={{ margin: '0 0 0 32px' }}>
+            켜면 이미 받아 둔 모델만 쓰고 인터넷 요청을 막습니다(allowRemote:false). 모델을 처음 받거나 업데이트할 때는 끄세요.
+          </p>
+          {needsReload && (
+            <div style={{ marginTop: 8 }}>
+              <Notice
+                tone="warn"
+                action={
+                  <button className="btn sm primary" onClick={() => window.location.reload()}>
+                    지금 새로고침
+                  </button>
+                }
+              >
+                오프라인 모드 {offlinePref ? '켜기' : '끄기'}는 새로고침하면 적용됩니다.{liveRunning && ' 지금 진행 중인 수신·분석은 중단됩니다.'}
+              </Notice>
+            </div>
+          )}
+        </div>
       )}
 
       <ul className="timeline">

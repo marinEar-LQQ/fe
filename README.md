@@ -25,7 +25,7 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 ```
 
 `MockEngineClient` (실제 엔진과 같은 규칙·IndexedDB, ASR/번역만 시연 고정 데이터)로 동작한다.
-교신 화면에 **시연 시나리오** 버튼이 생기고(Worker 모드에선 숨김), 해동호 / A선박 / PNIT T3 시연 작업이 있으면 재사용, 없으면 새로 등록한 뒤 사례 A~D·일치·정정 6건을 재생한다.
+교신 화면에 **시연 시나리오** 버튼이 생기고(Worker 모드에선 숨김), 시연 작업(엔진 `DEMO_TASK`: 해동호 / 현대부산호 / PNIT 2번 — 일부러 틀린 기록)이 있으면 재사용, 없으면 새로 등록한 뒤 팀 대본 3개(9개 대사)를 재생한다.
 결과의 `origin === 'fixture'` 또는 세션 `inputInfo.fixtureMode` 이면 카드·일지에 **시연 데이터** 배지가 붙는다.
 
 ## 엔진 연결
@@ -52,13 +52,24 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 - 번역 언어별 사용 가능 여부(`readiness.languages`), `offlineReady`, `canAnalyze`, 카탈로그 버전(시연용 여부)을 표시한다.
 - 한 번 준비를 마친 기기는 다음 실행 때 자동으로 캐시에서 다시 불러온다(Worker 는 재시작마다 모델을 메모리에 올려야 함).
 - `canAnalyze === false` 이면 교신 화면의 **수신 시작·파일 분석**이 비활성되고 “모델 준비 필요 → 설정” 안내가 뜬다.
-- 모델: ASR `onnx-community/whisper-small`, 번역 `Xenova/m2m100_418M` (최초 1회 수백 MB 이상, Hugging Face 에서 받음).
+- 모델: ASR `onnx-community/whisper-small`(약 250MB), 번역 `Xenova/opus-mt-ko-en` / `opus-mt-en-id` / `opus-mt-en-vi`(합계 약 315MB) — **첫 설치 약 565MB**, Hugging Face 에서 받음. Opus-MT 는 CC-BY-4.0 (Helsinki-NLP, 출처 표기 필요).
+- **오프라인 모드** 토글(현장용): 켜면 다음 실행부터 `WorkerEngineClient(..., { allowRemote: false })` — 캐시된 모델만 쓰고 외부 요청을 엔진이 차단한다. 바꾼 뒤 “지금 새로고침”으로 적용. 모델을 처음 받거나 업데이트할 때는 끈다.
+
+## 시연 준비 (설정 › 시연 준비)
+
+- **현재 작업 일지 JSON 저장**: `exportTaskLog(taskId, 'json')` 결과를 내려받는다.
+- **JSON 불러오기**: `importTaskLog(json)` → 성공하면 그 작업이 현재 작업이 된다. 형식이 틀리면 `VALIDATION_FAILED` 안내, 현재 작업은 그대로.
+- 용도: 인터넷·모델이 있는 PC 에서 실제 모델로 미리 분석 → JSON 저장 → 시연 기기에서 불러와 그대로 보여 주기. 결과의 `origin` 은 원래 값을 유지하고 **음성은 포함되지 않아 재생은 안 된다.**
 
 ## 파일 분석 테스트 (`radio-case-*.wav`)
 
 백엔드 저장소의 `fixtures/audio/` (설치된 패키지에도 `node_modules/marinear-engine/fixtures/audio/` 로 들어 있다)에 시연 음성이 있다. Windows TTS + 합성 잡음이며 **현장 성능 근거가 아니다.**
 
-| 파일 | 기대 판정 (작업 기준: 해동호 / A선박 / PNIT T3) |
+**팀 대본 녹음** (`fixtures/audio/team/script{1,2,3}_noisy.wav`, 정답 `team/truth.json`) — 시연 작업 기준(해동호 / 현대부산호 / PNIT T2)에서 대본 1은 HPNT 장소 차이, “TNIC” 오인식 후보(`ASR_CONFUSABLE`), 속력·침로·지시어·호출부호가 나온다.
+
+예전 단일 사례 파일 (작업 기준: 해동호 / A선박 / PNIT T3 로 등록해서 볼 것):
+
+| 파일 | 기대 판정 |
 | --- | --- |
 | `radio-case-a.wav` | 장소 차이 (HPNT T3) |
 | `radio-case-b.wav` | 원음·완화음 인식 차이 → r2 에서 불명확 `[PNIT / HPNT]` |
@@ -68,8 +79,8 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 | `radio-case-correction.wav` | 정정 ("HPNT 말고 PNIT") |
 
 1. `npm run dev` → **설정 › 분석 엔진 › 모델 다운로드** → “분석 가능” 확인
-2. **오늘 작업**: 해동호 / A선박 / PNIT / T3 등록
-3. **교신 › 파일 분석** → `../backend/fixtures/audio/radio-case-b.wav` 선택
+2. **오늘 작업**: 해동호 / 현대부산호 / PNIT / T2 등록 (예전 사례 파일이면 해동호 / A선박 / PNIT / T3)
+3. **교신 › 파일 분석** → `../backend/fixtures/audio/team/script1_noisy.wav` (또는 `radio-case-b.wav`) 선택
 4. 카드가 `분석 대기 → 잡음 완화 중 → 완화음 인식 중` → **r1 · 잠정 판정**(원음 교차 검사 중) → `원음 교차 인식 중` → **r2**(교차 검사 완료)로 바뀌는지 확인. r1 상태에서는 재확인 화면의 기록 반영이 막혀 있어야 한다.
 
 모델 없이 화면 흐름만 볼 때는 `VITE_ENGINE=mock` 으로 같은 순서를 확인할 수 있다(Mock ASR 은 파일 내용과 무관하게 시나리오 문장을 순서대로 돌려준다).
@@ -101,7 +112,8 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 - [ ] 앱 탭을 완전히 닫고 다시 연다 → 화면이 열리고 상단에 등록한 작업 기준이 그대로 보인다
 - [ ] 교신·재확인·작업 일지·오늘 작업·설정을 오가도 빈 화면이나 “분석 엔진 준비 중…” 에서 멈추지 않는다
 - [ ] 설정 › 분석 엔진이 다시 **분석 가능 / 오프라인 준비 완료** (재시작 때 캐시에서 모델을 다시 불러온다. 시간이 조금 걸릴 수 있음)
-- [ ] 교신 › 파일 분석으로 `radio-case-a.wav` 분석 → r1 → r2 결과가 나온다
+- [ ] 설정 › 분석 엔진 › 오프라인 모드를 켜고 새로고침 → “적용 중”
+- [ ] 교신 › 파일 분석으로 `team/script1_noisy.wav` 분석 → r1 → r2 결과가 나온다
 - [ ] 선택 언어 번역이 나온다 (미설치 언어는 “번역 자원 미설치” 안내만 나오고 몰래 온라인 번역하지 않는다)
 - [ ] 수신 시작 → 입력 레벨과 “엔진 수신 중” 표시, 발화가 분석된다
 - [ ] 이전 교신 기록·메모·기준 변경 이력이 작업 일지에 남아 있고 TXT/JSON 내보내기가 된다
@@ -138,7 +150,11 @@ src/ui/             재디자인 가능한 표시 부품 + 디자인 토큰(toke
 - 불확실 값은 `[A / B]` 로 표시하고 확정값처럼 보이지 않게 한다.
 - 확인 표시 / 관련 없음 / 기록 반영은 별개 행동이다. 반영만 작업 기준의 새 버전을 만든다.
 - 반영은 원음 교차 검사가 끝난(`crossCheck === 'complete'`) 결과에서만 가능하다.
-- 번역은 교차 검사가 끝난 revision 에 묶어 요청하고, 미설치 언어는 요청하지 않고 안내한다.
+- 원음/완화음이 다르게 들린 단어(`transcriptDiff` 의 op ≠ same)는 밑줄 + “확인” 표시, 원음 단어는 툴팁·탭으로 보여 준다. `transcriptDiff` 가 없으면(rev1 등) 강조하지 않는다.
+- 불확실 후보는 모든 필드(선박·터미널·선석·시각·숫자)를 `[A / B]`(후보 1개면 `[A?]`)로, 한 발화의 후보를 전부 표시한다. 후보가 하나라도 있으면 기본 반영은 꺼진다.
+- 번역 언어: 원문(ko) / 영어 / 인도네시아어 / 베트남어 (미얀마어·필리핀어 제외, 저장된 설정은 ko 로 바뀜).
+- 번역 영역: 한국어 원문(맨 위) → **정형 요약 카드**(`translation.summary.lines`, 크게, 불확실한 줄은 “확인 필요”) → **참고 번역**(`reference: true`, “부정확할 수 있음”, 작게). 문장 번역이 없어도(`unavailable`) 요약은 표시한다.
+- 번역은 교차 검사가 끝난 revision 에 묶어 요청한다. 문장 번역 모델이 없어도 요약을 받기 위해 화면 언어면 요청한다.
 
 ## 디자인 교체
 

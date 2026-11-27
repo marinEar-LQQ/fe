@@ -3,26 +3,15 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { translationKey, type MessageEntry } from '../../app/state'
 import { langLabel } from '../../contracts/lang'
-import { AUDIO_FLAG_LABEL, COMPARISON_HINT, LANG_AVAILABILITY_LABEL, REASON_LABEL, STAGE_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
+import { AUDIO_FLAG_LABEL, COMPARISON_HINT, LANG_AVAILABILITY_LABEL, STAGE_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
 import { correctionInfo } from '../../engine/report'
+import { formatReason } from '../../engine/transcript'
+import { TranscriptNotes, TranscriptView } from './Transcript'
 import { Badge, ComparisonBadge, DemoBadge, ReviewBadge } from '../../ui/components'
 
-/** 불확실 값은 [A / B] 로 강조해서 보여준다 */
+/** 하위 호환: 자막 + 확인 필요 표시 */
 export function TranscriptText({ result }: { result: AnalysisResult }) {
-  const text = result.enhancedTranscript?.text ?? result.rawTranscript?.text ?? ''
-  const unc = result.uncertainties.find((u) => u.alternatives.length > 1 && u.alternatives.some((a) => text.includes(a)))
-  if (!unc) return <>{text}</>
-  const hit = unc.alternatives.find((a) => text.includes(a))!
-  const [before, ...rest] = text.split(hit)
-  return (
-    <>
-      {before}
-      <span className="uncertain" title="원음·완화음 인식이 서로 다릅니다">
-        [{unc.alternatives.join(' / ')}]
-      </span>
-      {rest.join(hit)}
-    </>
-  )
+  return <TranscriptView result={result} />
 }
 
 /** 정정 발화·입력 품질(audioFlags)을 색상이 아닌 텍스트 라벨로 표시 */
@@ -93,14 +82,15 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
       </div>
 
       <div className="utt-text" lang="ko">
-        <TranscriptText result={result} />
+        <TranscriptView result={result} />
       </div>
+      <TranscriptNotes result={result} />
       <ResultFlags result={result} />
 
       {(kind !== 'match' || reasons.length > 0) && (
         <div className="small muted">
           {COMPARISON_HINT[kind]}
-          {reasons.length > 0 && <> · {reasons.map((r) => REASON_LABEL[r]).join(', ')}</>}
+          {reasons.length > 0 && <> · {reasons.map((r) => formatReason(r, result)).join(', ')}</>}
         </div>
       )}
 

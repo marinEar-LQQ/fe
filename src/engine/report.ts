@@ -1,22 +1,10 @@
 import type { AnalysisResult, TaskLog } from 'marinear-engine'
 import { entryFromLog } from '../app/state'
-import { COMPARISON_LABEL, REASON_LABEL, REVIEW_LABEL } from '../contracts/labels'
+import { COMPARISON_LABEL, REVIEW_LABEL } from '../contracts/labels'
+import { formatReason, transcriptPlainText } from './transcript'
 
-/** 불확실 값은 [A / B] 형태로 유지해 확정값처럼 보이지 않게 한다 */
-export function displayTranscript(result: AnalysisResult): string {
-  let text = result.enhancedTranscript?.text ?? result.rawTranscript?.text ?? ''
-  for (const u of result.uncertainties) {
-    if (u.alternatives.length < 2) continue
-    const marked = `[${u.alternatives.join(' / ')}]`
-    for (const alt of u.alternatives) {
-      if (text.includes(alt)) {
-        text = text.replace(alt, marked)
-        break
-      }
-    }
-  }
-  return text
-}
+/** 일지·내보내기용 자막: 불확실 후보 전부를 [A / B] 로 붙인다 (transcript.ts 규칙) */
+export const displayTranscript = transcriptPlainText
 
 /**
  * 정정 발화 정보. "HPNT 말고 PNIT" 처럼 부정(negated)된 후보가 있거나 CORRECTION_UNCLEAR 이면 반환.
@@ -49,7 +37,7 @@ export function buildTimeline(log: TaskLog): TimelineItem[] {
     const entry = entryFromLog(u, log.sessions)
     const result = entry.result
     const kind = result ? COMPARISON_LABEL[result.comparison.kind] : '분석 결과 없음'
-    const reasons = result?.comparison.reasonCodes.map((r) => REASON_LABEL[r]).join(', ')
+    const reasons = result?.comparison.reasonCodes.map((r) => formatReason(r, result)).join(', ')
     items.push({
       kind: 'utterance',
       at: u.utterance.capturedAt,

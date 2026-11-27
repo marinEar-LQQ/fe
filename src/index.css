@@ -568,3 +568,44 @@ a {
     padding-bottom: 0;
   }
 }
+
+/* ───── 원음/완화음 단어 차이 (색 + 밑줄 + "확인" 표시) ───── */
+.diff-word-wrap {
+  display: inline;
+}
+.diff-word {
+  font: inherit;
+  color: inherit;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  border: 0;
+  border-bottom: 2px dashed var(--warn);
+  border-radius: 3px;
+  padding: 0 2px;
+  margin: 0;
+  cursor: help;
+  min-height: 0;
+}
+.diff-word.removed {
+  font-style: italic;
+  color: var(--text-dim);
+}
+.diff-word:focus-visible {
+  outline: 2px solid var(--info);
+}
+.diff-tag {
+  font-size: 0.55em;
+  font-weight: 700;
+  color: var(--warn);
+  margin-left: 2px;
+}
+.diff-pop {
+  display: inline-block;
+  margin: 0 4px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}

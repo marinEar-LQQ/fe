@@ -4,33 +4,17 @@ import { Link, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal } from '../../contracts/catalog'
-import { AUDIO_FLAG_LABEL, COMPARISON_HINT, DIFF_FIELD_LABEL, REASON_LABEL, formatClock, formatMs } from '../../contracts/labels'
+import { AUDIO_FLAG_LABEL, COMPARISON_HINT, DIFF_FIELD_LABEL, formatClock, formatMs } from '../../contracts/labels'
 import { correctionInfo } from '../../engine/report'
 import { Badge, Card, ComparisonBadge, DemoBadge, EmptyState, Notice, ReviewBadge } from '../../ui/components'
-import { ResultFlags, TranscriptText } from '../radio/UtteranceCard'
+import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
+import { ResultFlags } from '../radio/UtteranceCard'
+import { formatAlternatives, formatReason, UNCERTAIN_FIELD_LABEL } from '../../engine/transcript'
 import { useUtterance } from './useUtterance'
 
 const CLIP_REASON: Record<Exclude<AudioClip['status'], 'available'>, string> = {
   deleted: '삭제된 음성이라 재생할 수 없습니다.',
   missing: '저장된 음성을 찾을 수 없습니다.',
-}
-
-/** raw/enhanced 문장을 단어 단위로 비교해 다른 부분을 표시 */
-function DiffText({ text, other }: { text: string; other: string }) {
-  const otherWords = new Set(other.split(/\s+/))
-  return (
-    <>
-      {text.split(/(\s+)/).map((w, i) =>
-        /\s+/.test(w) || otherWords.has(w) ? (
-          <span key={i}>{w}</span>
-        ) : (
-          <mark key={i} className="diff-mark">
-            {w}
-          </mark>
-        ),
-      )}
-    </>
-  )
 }
 
 function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId: string; variant: AudioVariant; label: string; wordAligned: boolean }) {
@@ -84,8 +68,6 @@ const AUDIO_FLAG_HINT: Record<AnalysisResult['audioFlags'][number], string> = {
   TRUNCATED: '발화가 길어 일부만 분석했습니다.',
 }
 
-const UNC_FIELD: Record<AnalysisResult['uncertainties'][number]['field'], string> = { vessel: '선박', terminalId: '터미널', berthId: '선석', time: '시각', number: '숫자' }
-
 /** 기준값/교신값의 터미널·선석을 나눠 그리고, diffs 에 있는 필드는 강조한다 */
 function PlaceValue({ terminal, berth, diffs, side }: { terminal: string; berth: string; diffs: FieldDiff[]; side: 'task' | 'heard' }) {
   const mark = (field: FieldDiff['field'], text: string) =>
@@ -107,8 +89,8 @@ function placeOf(result: AnalysisResult): { terminal: string; berth: string; unc
   const tu = result.uncertainties.find((u) => u.field === 'terminalId')
   const bu = result.uncertainties.find((u) => u.field === 'berthId')
   return {
-    terminal: tu ? `[${tu.alternatives.join(' / ')}]` : (result.entities.terminalId ?? '언급 없음'),
-    berth: bu ? `[${bu.alternatives.join(' / ')}]` : (result.entities.berthId ?? '언급 없음'),
+    terminal: tu ? formatAlternatives(tu) : (result.entities.terminalId ?? '언급 없음'),
+    berth: bu ? formatAlternatives(bu) : (result.entities.berthId ?? '언급 없음'),
     uncertain: Boolean(tu || bu || !result.entities.terminalId),
   }
 }
@@ -145,12 +127,13 @@ export function ReviewDetailPage() {
   // 원음 교차 검사가 끝나지 않은(pending/unavailable) 결과로는 반영할 수 없다 (엔진: UNCERTAIN_VALUE)
   const pending = result.crossCheck === 'pending'
   const notComplete = result.crossCheck !== 'complete'
-  const clearDifference = kind === 'difference' && !place.uncertain
+  // 불확실 후보가 하나라도 있으면 기본 반영값을 만들지 않는다 (사용자가 직접 선택해야 함)
+  const hasUncertainty = result.uncertainties.length > 0
+  const clearDifference = kind === 'difference' && !place.uncertain && !hasUncertainty
   const effectivePatch: TaskPatch | null = manual ? patch : clearDifference ? { terminalId: result.entities.terminalId!, berthId: result.entities.berthId } : null
   const patchValid = Boolean(effectivePatch?.terminalId && effectivePatch.berthId)
   const canApply = !notComplete && confirmed && patchValid && Boolean(active) && reviewStatus !== 'applied'
-  const rawText = result.rawTranscript?.text ?? ''
-  const enhText = result.enhancedTranscript?.text ?? ''
+  const diffWords = result.transcriptDiff?.filter((d) => d.op !== 'same').length ?? 0
   const manualTerminal = findTerminal(CATALOG, patch.terminalId)
   const expectedTaskVersion = active?.version ?? utterance.taskVersion
 
@@ -207,12 +190,13 @@ export function ReviewDetailPage() {
           </span>
         </div>
         <div className="utt-text" lang="ko">
-          <TranscriptText result={result} />
+          <TranscriptView result={result} />
         </div>
+        <TranscriptNotes result={result} />
         <ResultFlags result={result} />
         <div className="small muted">
           {COMPARISON_HINT[kind]}
-          {result.comparison.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => REASON_LABEL[r]).join(', ')}` : ''}
+          {result.comparison.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => formatReason(r, result)).join(', ')}` : ''}
         </div>
       </Card>
 
@@ -269,17 +253,19 @@ export function ReviewDetailPage() {
       <Card>
         <div className="card-title-row">
           <h2>원음 / 완화음 인식</h2>
-          {pending ? <Badge tone="info">교차 검사 중</Badge> : result.uncertainties.length ? <Badge tone="warn">인식 차이 있음</Badge> : <Badge tone="muted">차이 없음</Badge>}
+          {pending ? <Badge tone="info">교차 검사 중</Badge> : diffWords > 0 ? <Badge tone="warn">단어 차이 {diffWords}곳 · 확인 필요</Badge> : result.transcriptDiff ? <Badge tone="muted">차이 없음</Badge> : <Badge tone="muted">비교 정보 없음</Badge>}
         </div>
         <dl className="kv" style={{ gridTemplateColumns: '64px 1fr' }}>
           <dt>완화음</dt>
-          <dd lang="ko">{enhText ? <DiffText text={enhText} other={rawText || enhText} /> : '—'}</dd>
+          <dd lang="ko">
+            <EnhancedTranscriptLine result={result} />
+          </dd>
           <dt>원음</dt>
-          <dd lang="ko">{pending ? <span className="muted">원음 인식 대기 중…</span> : rawText ? <DiffText text={rawText} other={enhText} /> : '—'}</dd>
+          <dd lang="ko">{pending ? <span className="muted">원음 인식 대기 중…</span> : <RawTranscriptLine result={result} />}</dd>
         </dl>
         {result.uncertainties.length > 0 && (
           <p className="small" style={{ marginBottom: 0 }}>
-            후보: {result.uncertainties.map((u) => `${UNC_FIELD[u.field]} ${u.alternatives.join(' / ')}`).join(' · ')}
+            후보: {result.uncertainties.map((u) => `${UNCERTAIN_FIELD_LABEL[u.field]} ${formatAlternatives(u)}`).join(' · ')}
             <br />
             <span className="muted">두 결과가 같아도 정답을 보장하지 않습니다. 필요하면 기존 무전기로 다시 물어보세요.</span>
           </p>
@@ -333,7 +319,9 @@ export function ReviewDetailPage() {
                 반영할 장소: <b>{result.entities.terminalId} {result.entities.berthId}</b>
               </div>
             )}
-            {!clearDifference && !manual && <div className="small">장소가 불확실해 기본 반영이 꺼져 있습니다. 직접 확인한 뒤 수동으로 선택하세요.</div>}
+            {!clearDifference && !manual && (
+              <div className="small">{hasUncertainty ? '불확실한 후보가 있어 기본 반영이 꺼져 있습니다.' : '장소가 불확실해 기본 반영이 꺼져 있습니다.'} 직접 확인한 뒤 수동으로 선택하세요.</div>
+            )}
 
             {manual ? (
               <div className="form-grid">

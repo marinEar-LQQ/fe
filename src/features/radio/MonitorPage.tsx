@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { engineStatus, type Filter } from '../../app/state'
@@ -10,6 +10,7 @@ import { UtteranceCard } from './UtteranceCard'
 export function MonitorPage() {
   const { state, dispatch, demoAvailable, startDemo, startFile, startLive, stop, setLang } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
+  const [fileName, setFileName] = useState<string | null>(null)
   const { session, inputState, engineState, messageState, uiState, taskState, preferences } = state
   const running = session.source !== null
   const task = taskState.active
@@ -61,7 +62,7 @@ export function MonitorPage() {
             </div>
           </div>
         )}
-        {session.source === 'file' && <div className="small muted" style={{ marginBottom: 12 }}>파일을 엔진으로 보내는 중입니다. 결과는 발화마다 아래에 표시됩니다.</div>}
+        {session.source === 'file' && <div className="small muted" style={{ marginBottom: 12 }}>{fileName ? `${fileName} · ` : ''}파일을 디코딩해 엔진으로 보내는 중입니다. 결과는 발화마다 아래에 표시됩니다.</div>}
         {(inputState.status === 'error' || inputState.status === 'disconnected') && inputState.detail && (
           <div style={{ marginBottom: 12 }}>
             <Notice tone="danger">{inputState.detail}</Notice>
@@ -93,7 +94,10 @@ export function MonitorPage() {
             hidden
             onChange={(e) => {
               const f = e.target.files?.[0]
-              if (f) void startFile(f)
+              if (f) {
+                setFileName(f.name)
+                void startFile(f)
+              }
               e.target.value = ''
             }}
           />

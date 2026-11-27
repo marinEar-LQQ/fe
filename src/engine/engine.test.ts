@@ -1,5 +1,7 @@
 import 'fake-indexeddb/auto'
-import { MockEngineClient, isEngineError, type AnyEngineEvent } from 'marinear-engine'
+import { MockEngineClient, analyzePcm, isEngineError, type AnyEngineEvent } from 'marinear-engine'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { restoreActiveTask } from './restore'
 import { applyEvent, initialState, reducer, type AppState } from '../app/state'
@@ -107,6 +109,30 @@ describe('MockEngineClient scenario → UI state', () => {
     expect(after.task.activeVersion).toBe(2)
     expect(after.versions[1].sourceReviewEventId).toBe(applied.eventId)
     expect(after.counts.applied).toBe(1)
+  })
+
+  it('analyzes a fixture WAV through the file path (analyzePcm) with progress stages and r1 → r2', async () => {
+    const { engine, events, demo } = await setup()
+    const task = await demo.ensureDemoTask()
+    // analyzeFile = decodeAudioFile(AudioContext, 브라우저 전용) + analyzePcm. Node 에선 PCM16 WAV 를 직접 읽는다.
+    const buf = readFileSync(fileURLToPath(new URL('../../node_modules/marinear-engine/fixtures/audio/radio-case-b.wav', import.meta.url)))
+    const sampleRate = buf.readUInt32LE(24)
+    const pcm16 = new Int16Array(buf.buffer.slice(buf.byteOffset + 44, buf.byteOffset + buf.length))
+    const pcm = Float32Array.from(pcm16, (v) => v / 32768)
+    const session = await analyzePcm(engine, task.taskId, pcm, sampleRate, { fileName: 'radio-case-b.wav' })
+    await engine.whenIdle()
+    expect(session.source).toBe('file')
+    expect(session.inputInfo.fileName).toBe('radio-case-b.wav')
+
+    const stages = events.flatMap((e) => (e.type === 'analysis.progress' ? [e.payload.stage] : []))
+    expect(stages).toEqual(expect.arrayContaining(['queued', 'enhancing', 'asr_enhanced', 'asr_raw']))
+    const state = events.reduce(applyEvent, initialState())
+    const entries = state.messageState.order.map((id) => state.messageState.byId[id])
+    expect(entries.length).toBeGreaterThan(0)
+    for (const e of entries) {
+      expect(e.result?.crossCheck).toBe('complete')
+      expect(e.stage).toBe('done')
+    }
   })
 
   it('stores notes through engine.saveNote and hides deleted ones in the timeline', async () => {

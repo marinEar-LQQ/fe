@@ -65,7 +65,8 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
         {needsReview(kind) && <ReviewBadge status={review} />}
         {entry.fixture && <DemoBadge />}
         <span className="small" style={{ marginLeft: 'auto' }}>
-          기준 v{utterance.taskVersion ?? '-'} · r{result.revision}
+          기준 v{utterance.taskVersion} · r{result.revision}
+          {result.crossCheck === 'pending' ? ' · 잠정 판정' : ''}
         </span>
       </div>
 

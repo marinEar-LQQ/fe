@@ -2,23 +2,104 @@
 
 정적 HTML 목업이다. 앱 코드가 아니라 화면 디자인 기준으로만 쓴다. 화면 크기는 390 x 844.
 
-`index.html`을 브라우저에서 열면 9개 화면을 한 번에 볼 수 있다.
+분석 엔진은 백엔드 패키지 [`marinear-engine`](https://github.com/marinEar-LQQ/backend) (`github:marinEar-LQQ/backend`)를 쓴다. 상시 서버 없이 브라우저 Web Worker 안에서 모델이 돈다.
 
-| 파일 | 화면 |
+## 실행
+
+```bash
+npm install                    # marinear-engine 은 GitHub 에서 받아 설치 중 dist 를 빌드한다
+npm run dev                    # http://localhost:5173 — 실제 엔진(WorkerEngineClient)
+npm test                       # 단위·통합 테스트 (reducer 규칙 + MockEngineClient 시나리오·파일 경로)
+npm run build                  # 타입 검사 + 배포 빌드
+```
+
+- 음성 입력(getUserMedia)은 **HTTPS 또는 localhost** 에서만 동작한다. 태블릿 실기기 테스트는 HTTPS 배포 주소로 한다.
+- `npm install` 은 `github:marinEar-LQQ/backend` 저장소에 접근할 수 있어야 한다.
+
+### 시연 백업 (모델 없이)
+
+```bash
+VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm run dev
+```
+
+`MockEngineClient` (실제 엔진과 같은 규칙·IndexedDB, ASR/번역만 시연 고정 데이터)로 동작한다.
+교신 화면에 **시연 시나리오** 버튼이 생기고(Worker 모드에선 숨김), 해동호 / A선박 / PNIT T3 시연 작업이 있으면 재사용, 없으면 새로 등록한 뒤 사례 A~D·일치·정정 6건을 재생한다.
+결과의 `origin === 'fixture'` 또는 세션 `inputInfo.fixtureMode` 이면 카드·일지에 **시연 데이터** 배지가 붙는다.
+
+## 엔진 연결
+
+| | |
 | --- | --- |
-| `00-start-language.html` | 00 시작 언어 선택 |
-| `01-task.html` | 01 오늘 작업 등록 |
-| `02-monitor.html` | 02 교신 모니터링 |
-| `03-compare.html` | 03 작업 장소 비교 |
-| `04-recheck.html` | 04 핵심 구간 재확인 |
-| `05-translate.html` | 05 외국어 번역 |
-| `06-report.html` | 06 작업별 교신 일지 |
-| `07-memo.html` | 07 작업 메모와 내보내기 |
-| `08-settings.html` | 08 설정 |
+| 주입 지점 | `src/engine/index.ts` 한 곳. `VITE_ENGINE=mock` → `MockEngineClient.create()`, 기본 → `new WorkerEngineClient(new EngineWorker(), { allowRemote: true })` |
+| 실패 처리 | 엔진은 `EngineError` 예외를 던진다. `VERSION_CONFLICT`·`RESULT_STALE` 는 **자동 재시도하지 않고** 최신 기준·결과를 다시 불러와 보여준다 |
+| 작업 복원 | 앱 시작 시 `listTasks()` → 가장 최근 작업 → `getTaskLog()` 의 `activeVersion` |
+| 메모 | `engine.saveNote(taskId, text)`. 삭제는 빈 내용으로 저장(`deleted: true`, 기록은 남음) |
+| 실시간 입력 | AudioWorklet → `openSession(taskId, 'live')` → `appendAudio` → `closeSession`. pcm 버퍼는 Worker 로 transfer 되므로 넘긴 뒤 재사용하지 않는다. 장치 끊김은 Worker 엔진일 때만 `markDisconnected` |
+| 작업 필수 | 엔진은 작업 없이 세션을 열지 않는다 → 작업이 없으면 수신·파일 분석 버튼 비활성 |
 
-## 디자인 기준
+### Vite 설정 (`vite.config.ts`)
 
-- 글꼴: IBM Plex Sans KR(본문), IBM Plex Mono(코드와 시각)
-- 색: 잉크 `#0B2A42`, 보조 `#3F5B70`, 경고 `#A3195B`, 배경 `#EEF5F9`, 해도 격자 `#D5E4EE`
-- 경고는 색과 함께 모양(삼각형, 마름모)으로도 구분한다.
-- 시작 화면에서 언어를 고른 뒤 오늘 작업 등록으로 넘어간다.
+- `worker: { format: 'es' }`, `optimizeDeps.exclude: ['@huggingface/transformers']` (패키지 README 요구사항)
+- **COOP/COEP 헤더** (`Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`)를 dev·preview 서버에 적용. `crossOriginIsolated` 가 켜져야 ONNX Runtime WASM 이 멀티스레드로 돈다. **배포 서버(정적 호스팅)에도 같은 헤더를 설정해야 한다.**
+- vitest 는 `server.deps.inline: ['marinear-engine']` — 패키지 dist 가 확장자 없는 import(번들러 전용)라 Node 에서 직접 못 읽는다.
+- `prebuild`(`scripts/clean-dist.mjs`)가 dist 를 지운다. Node 24 의 재귀 `fs.rmSync`(Vite `emptyOutDir` 도 사용)가 Windows 비ASCII 경로(예: `바탕 화면`)에서 프로세스를 죽이는 문제 우회.
+
+## 모델 준비 (설정 › 분석 엔진)
+
+- **모델 다운로드** → `loadAssets(DEFAULT_ASSET_MANIFEST, onProgress)`. 모델별 받은 용량·%·상태(다운로드/검증/준비/오류)와 자체 검사 결과를 표시한다.
+- 번역 언어별 사용 가능 여부(`readiness.languages`), `offlineReady`, `canAnalyze`, 카탈로그 버전(시연용 여부)을 표시한다.
+- 한 번 준비를 마친 기기는 다음 실행 때 자동으로 캐시에서 다시 불러온다(Worker 는 재시작마다 모델을 메모리에 올려야 함).
+- `canAnalyze === false` 이면 교신 화면의 **수신 시작·파일 분석**이 비활성되고 “모델 준비 필요 → 설정” 안내가 뜬다.
+- 모델: ASR `onnx-community/whisper-small`, 번역 `Xenova/m2m100_418M` (최초 1회 수백 MB 이상, Hugging Face 에서 받음).
+
+## 파일 분석 테스트 (`radio-case-*.wav`)
+
+백엔드 저장소의 `fixtures/audio/` (설치된 패키지에도 `node_modules/marinear-engine/fixtures/audio/` 로 들어 있다)에 시연 음성이 있다. Windows TTS + 합성 잡음이며 **현장 성능 근거가 아니다.**
+
+| 파일 | 기대 판정 (작업 기준: 해동호 / A선박 / PNIT T3) |
+| --- | --- |
+| `radio-case-a.wav` | 장소 차이 (HPNT T3) |
+| `radio-case-b.wav` | 원음·완화음 인식 차이 → r2 에서 불명확 `[PNIT / HPNT]` |
+| `radio-case-c.wav` | 불명확 (터미널 언급 없음) |
+| `radio-case-d.wav` | 다른 선박 |
+| `radio-case-match.wav` | 일치 |
+| `radio-case-correction.wav` | 정정 ("HPNT 말고 PNIT") |
+
+1. `npm run dev` → **설정 › 분석 엔진 › 모델 다운로드** → “분석 가능” 확인
+2. **오늘 작업**: 해동호 / A선박 / PNIT / T3 등록
+3. **교신 › 파일 분석** → `../backend/fixtures/audio/radio-case-b.wav` 선택
+4. 카드가 `분석 대기 → 잡음 완화 중 → 완화음 인식 중` → **r1 · 잠정 판정**(원음 교차 검사 중) → `원음 교차 인식 중` → **r2**(교차 검사 완료)로 바뀌는지 확인. r1 상태에서는 재확인 화면의 기록 반영이 막혀 있어야 한다.
+
+모델 없이 화면 흐름만 볼 때는 `VITE_ENGINE=mock` 으로 같은 순서를 확인할 수 있다(Mock ASR 은 파일 내용과 무관하게 시나리오 문장을 순서대로 돌려준다).
+
+## 화면
+
+| 메뉴 | 경로 | 기능 |
+| --- | --- | --- |
+| 교신 | `/monitor` | 수신 시작/중지, 파일 분석, (Mock) 시연 시나리오, 발화별 진행 단계, 전체/내 작업/재확인 필터, 원문+번역 |
+| 재확인 | `/reviews`, `/reviews/:id` | 장소 비교(발화 당시 기준 vs 언급), 원음/완화음 인식 차이, 재생, 확인/관련 없음/기록 반영 |
+| 작업 일지 | `/report` | 기준 변경·교신·사용자 확인·메모 시간순, 건수 집계(엔진 `counts`), TXT/JSON(엔진 export)/인쇄 |
+| 오늘 작업 | `/task` | 내 배·대상·터미널·선석·메모 등록, 장소 검증(엔진 `validateTaskDraft`), 불변 버전 저장 |
+| 설정 | `/settings` | 입력 장치, 분석 엔진·모델 준비, 번역 언어, 큰 글씨, 저장 공간, 앱 설치 안내 |
+
+## 구조
+
+```
+src/app/            앱 셸, 전역 상태(reducer), 엔진 오류 처리, 오류 경계
+src/features/       task / radio / review / report / settings(EnginePanel)
+src/engine/         엔진 주입(index), 시연 제어(demo), 확장 기능 가드(extensions), 작업 복원, 일지 타임라인
+src/contracts/      화면용 라벨·언어 목록·카탈로그 헬퍼 (타입 원본은 marinear-engine)
+src/audio/          getUserMedia + AudioWorklet 캡처 (public/worklets)
+src/ui/             재디자인 가능한 표시 부품 + 디자인 토큰(tokens.css)
+```
+
+## 화면 규칙
+
+- 불확실 값은 `[A / B]` 로 표시하고 확정값처럼 보이지 않게 한다.
+- 확인 표시 / 관련 없음 / 기록 반영은 별개 행동이다. 반영만 작업 기준의 새 버전을 만든다.
+- 반영은 원음 교차 검사가 끝난(`crossCheck === 'complete'`) 결과에서만 가능하다.
+- 번역은 교차 검사가 끝난 revision 에 묶어 요청하고, 미설치 언어는 요청하지 않고 안내한다.
+
+## 디자인 교체
+
+색상·서체·여백은 `src/ui/tokens.css`, 표시 부품은 `src/ui/components.tsx`와 `src/index.css`에 모여 있다. 업무 로직은 features/engine에 있으니 디자인 변경 시 건드리지 않아도 된다.

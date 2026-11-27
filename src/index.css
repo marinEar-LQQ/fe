@@ -1442,3 +1442,58 @@ button.link-row {
     animation: none;
   }
 }
+
+/* ───────── 재확인: 비교 칸이 곧 선택지 ───────── */
+button.compare-cell {
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: var(--surface);
+  border: 0;
+  cursor: pointer;
+  position: relative;
+  transition:
+    box-shadow 120ms ease-out,
+    background-color 120ms ease-out;
+}
+button.compare-cell + .compare-cell,
+.compare-cell + button.compare-cell {
+  border-left: var(--line-dashed);
+}
+button.compare-cell.diff {
+  background: var(--alert-bg);
+  border-left: 0;
+}
+button.compare-cell:disabled {
+  cursor: default;
+}
+button.compare-cell:not(:disabled):hover {
+  box-shadow: inset 0 0 0 2px var(--ink-2);
+}
+/* 고른 칸: 두꺼운 테두리 + ✓ (색만으로 표시하지 않음) */
+.compare-cell.picked {
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+.compare-cell .pick-hint {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.compare-cell.picked .pick-hint {
+  color: var(--ink);
+}
+/* 긴 이름(신선대부두 등)은 한 줄에 들어오게 */
+.compare-cell .value.long {
+  font-size: 22px;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+.choice.picked {
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  button.compare-cell {
+    transition: none;
+  }
+}

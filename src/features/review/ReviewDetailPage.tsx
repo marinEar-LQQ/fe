@@ -5,23 +5,21 @@ import { useApp } from '../../app/AppContext'
 import { useReviewQueue } from '../../app/useReviewQueue'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal } from '../../contracts/catalog'
-import { formatClock, formatMs } from '../../contracts/labels'
-import { extraEntities } from '../../engine/entities'
+import { formatClock } from '../../contracts/labels'
 import { correctionInfo } from '../../engine/report'
-import { formatAlternatives, formatReason, headline } from '../../engine/transcript'
+import { formatAlternatives, headline } from '../../engine/transcript'
 import { useT } from '../../i18n'
-import { Card, Choice, DemoBadge, EmptyState, IconCheck, IconPlay, KIND_MARK, Notice, PageHead, ReviewBadge, StatusLabel, StatusMark } from '../../ui/components'
+import { DemoBadge, EmptyState, IconCheck, IconPlay, KIND_MARK, Notice, PageHead, ReviewBadge, StatusLabel } from '../../ui/components'
 import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
 import { EntityChips, ResultFlags } from '../radio/UtteranceCard'
 import { useUtterance } from './useUtterance'
 
-/** 원음/완화음 구간 재생 (getAudioClip). 단어 위치가 검증되지 않았으면 발화 전체를 재생한다고 알린다 */
-function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId: string; variant: AudioVariant; label: string; wordAligned: boolean }) {
+/** 원음/완화음 재생 (getAudioClip). 음성이 없으면 사유만 알린다 */
+function AudioButton({ utteranceId, variant, label }: { utteranceId: string; variant: AudioVariant; label: string }) {
   const { engine } = useApp()
   const t = useT()
   const [msg, setMsg] = useState<string | null>(null)
   const [url, setUrl] = useState<string | null>(null)
-  const [range, setRange] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
 
@@ -39,12 +37,10 @@ function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId
     }
     if (clip.status !== 'available' || !clip.blob) {
       setUrl(null)
-      setRange(null)
       return setMsg(t.clip[clip.status === 'available' ? 'missing' : clip.status])
     }
     setUrl(URL.createObjectURL(clip.blob))
-    setRange(`${formatMs(clip.startMs)}–${formatMs(clip.endMs)}`)
-    setMsg(wordAligned ? null : t.reviewDetail.wholeUtterance)
+    setMsg(null)
     setTimeout(() => audioRef.current?.play().catch(() => setMsg(t.reviewDetail.playFailed)), 0)
   }
 
@@ -55,10 +51,24 @@ function AudioButton({ utteranceId, variant, label, wordAligned }: { utteranceId
         {label}
       </button>
       {url && <audio ref={audioRef} src={url} controls style={{ width: '100%' }} />}
-      {url && range && <span className="time">{t.reviewDetail.range(range)}</span>}
       {msg && <span className="small muted">{msg}</span>}
     </div>
   )
+}
+
+/** 사용자가 고른 답: 등록한 장소가 맞음(keep) 또는 교신에서 들린 장소로 바꾸기(change) */
+type Pick = { kind: 'keep' } | { kind: 'change'; terminalId: string; berthId: string }
+
+/** 교신에서 들린 장소 후보 (불확실하면 후보 조합 전부, 카탈로그에 있는 터미널·선석만, 최대 4개) */
+function heardOptions(result: AnalysisResult): { terminalId: string; berthId: string }[] {
+  const tu = result.uncertainties.find((u) => u.field === 'terminalId')
+  const bu = result.uncertainties.find((u) => u.field === 'berthId')
+  const tIds = tu ? tu.alternatives : result.entities.terminalId ? [result.entities.terminalId] : []
+  const bIds = bu ? bu.alternatives : result.entities.berthId ? [result.entities.berthId] : []
+  const out: { terminalId: string; berthId: string }[] = []
+  for (const terminalId of tIds)
+    for (const berthId of bIds) if (findTerminal(CATALOG, terminalId)?.berths.some((b) => b.berthId === berthId)) out.push({ terminalId, berthId })
+  return out.slice(0, 4)
 }
 
 const PLACE_REASONS = ['MULTIPLE_CANDIDATES', 'TERMINAL_MISSING', 'BERTH_MISSING', 'CATALOG_UNKNOWN', 'BERTH_NOT_IN_TERMINAL'] as const
@@ -99,14 +109,12 @@ function ReviewDetail() {
   const navigate = useNavigate()
   const queue = useReviewQueue()
   const [advance, setAdvance] = useState<string | null>(null)
-  const { entry, versions, events, storedReview, loading, loadError, reload } = useUtterance(id)
+  const { entry, versions, storedReview, loading, loadError, reload } = useUtterance(id)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<string | null>(null)
-  const [manual, setManual] = useState(false)
-  const [patch, setPatch] = useState<{ terminalId: string; berthId: string | null }>({ terminalId: '', berthId: null })
+  const [pick, setPick] = useState<Pick | null>(null)
   const requestIdRef = useRef<{ key: string; id: string } | null>(null)
-  const [confirmed, setConfirmed] = useState(false)
 
   // 들어온 곳(교신 / 재확인 목록 / 일지)으로 돌아간다. 모르면 교신
   const from = (useLocation().state as { from?: string } | null)?.from
@@ -141,25 +149,28 @@ function ReviewDetail() {
   const diffs = result.comparison.diffs
   const terminalDiffers = diffs.some((d) => d.field === 'terminalId')
   const berthDiffers = diffs.some((d) => d.field === 'berthId')
-  const extras = extraEntities(result.entities, t)
   const correction = correctionInfo(result)
   const reviewStatus: ReviewState = state.reviewState[utterance.utteranceId] ?? storedReview
   const diffWords = result.transcriptDiff?.filter((d) => d.op !== 'same').length ?? 0
 
   // 어떤 칸을 보일지: 장소 비교(03) / 원음·완화음 비교(04)
   const showRecheck = diffWords > 0 || reasons.some((r) => (ASR_REASONS as readonly string[]).includes(r))
-  const showCompare = kind !== 'ambiguous' || diffs.length > 0 || reasons.some((r) => (PLACE_REASONS as readonly string[]).includes(r)) || !showRecheck
+  // 장소 후보가 들렸으면(한쪽 인식에만 들려도) 비교 칸을 보여 사용자가 맞는 쪽을 고르게 한다
+  // 실측: "신선대부두 3번"이 원음에만 들리고 완화음은 "부도"로 적혀 인식 불일치로만 판정 → 고를 곳이 없었음
+  const showCompare = kind !== 'ambiguous' || diffs.length > 0 || reasons.some((r) => (PLACE_REASONS as readonly string[]).includes(r)) || !showRecheck || heardOptions(result).length > 0
 
-  // 반영 규칙: 원음 교차 검사가 끝난 결과만 (엔진: UNCERTAIN_VALUE). 불확실 후보가 있으면 기본 반영값 없음
+  // 반영 규칙: 원음 교차 검사가 끝난 결과만 (엔진: UNCERTAIN_VALUE)
   const pending = result.crossCheck === 'pending'
   const notComplete = result.crossCheck !== 'complete'
-  const hasUncertainty = result.uncertainties.length > 0
-  const clearDifference = kind === 'difference' && !heard.uncertain && !hasUncertainty
-  const effectivePatch: TaskPatch | null = manual ? patch : clearDifference ? { terminalId: result.entities.terminalId!, berthId: result.entities.berthId } : null
-  const patchValid = Boolean(effectivePatch?.terminalId && effectivePatch.berthId)
-  const canApply = !notComplete && confirmed && patchValid && Boolean(active) && reviewStatus !== 'applied'
-  const manualTerminal = findTerminal(CATALOG, patch.terminalId)
   const expectedTaskVersion = active?.version ?? utterance.taskVersion
+  // 교신 장소 후보 중 지금 등록한 장소와 다른 것만 "바꾸기" 선택지로
+  const options = heardOptions(result).filter((o) => !(o.terminalId === snapshot?.terminalId && o.berthId === snapshot?.berthId))
+  const canChange = !notComplete && Boolean(active) && reviewStatus !== 'applied'
+  const single = options.length === 1 && !heard.uncertain ? options[0]! : null
+  // 비교 칸이 없는 교신(인식 차이만)은 고를 것이 없으니 바로 저장(확인 완료)
+  const effectivePick: Pick | null = showCompare ? pick : { kind: 'keep' }
+  const picked = (o: { terminalId: string; berthId: string }) => pick?.kind === 'change' && pick.terminalId === o.terminalId && pick.berthId === o.berthId
+  const placeLabel = (terminalId: string, berthId: string) => `${terminalName(terminalId) ?? terminalId} ${berthName(terminalId, berthId) ?? berthId}`
 
   // 제목: 장소 차이 / "A인가요, B인가요?" / 일반
   const terminalAlts = result.uncertainties.find((u) => u.field === 'terminalId')?.alternatives ?? []
@@ -181,24 +192,25 @@ function ReviewDetail() {
     return requestIdRef.current.id
   }
 
-  async function act(action: ReviewAction) {
+  /** 저장하기: 고른 답에 따라 확인(review) 또는 기록 변경(apply). 사용자가 직접 고른 것이 확인 절차다 */
+  async function save() {
+    if (!effectivePick) return
+    const action: ReviewAction = effectivePick.kind === 'change' ? 'apply' : 'review'
+    const p: TaskPatch | undefined = effectivePick.kind === 'change' ? { terminalId: effectivePick.terminalId, berthId: effectivePick.berthId } : undefined
     setBusy(true)
     setError(null)
     setDone(null)
-    const p = action === 'apply' ? (effectivePatch ?? undefined) : undefined
     try {
-      const ev = await review({
+      await review({
         requestId: requestIdFor(action, p),
         utteranceId: utterance.utteranceId,
         action,
         expectedTaskVersion,
         expectedResultRevision: result.revision,
-        confirmedByUser: action === 'apply' ? confirmed : true,
+        confirmedByUser: true,
         ...(p ? { patch: p } : {}),
       })
-      setDone(action === 'apply' ? t.reviewDetail.doneApply(ev.taskVersionAfter) : action === 'dismiss' ? t.reviewDetail.doneDismiss : t.reviewDetail.doneReview)
-      setManual(false)
-      setConfirmed(false)
+      setDone(effectivePick.kind === 'change' ? t.reviewDetail.savedChange(placeLabel(effectivePick.terminalId, effectivePick.berthId)) : t.reviewDetail.savedKeep)
       // 흐름: 처리하면 다음 확인할 교신으로, 다 끝나면 교신 화면으로 (처리 결과 문구를 잠깐 보여 준 뒤)
       const next = queue.pendingIds.find((x) => x !== utterance.utteranceId)
       setAdvance(next ? t.flow.nextIn : t.flow.allDone)
@@ -212,54 +224,13 @@ function ReviewDetail() {
       // VERSION_CONFLICT / RESULT_STALE: 자동 재시도하지 않고 최신 기준·결과를 다시 불러와 보여준다
       setError(isStale(code) ? `${message} (${code}) — ${t.reviewDetail.stale}` : `${message} (${code})`)
       if (isStale(code)) reload()
-      setConfirmed(false)
+      setPick(null)
     } finally {
       setBusy(false)
     }
   }
 
-  const confirmBox = (
-    <label className="check-row">
-      <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} disabled={notComplete || !patchValid} />
-      {t.reviewDetail.confirmCheck}
-    </label>
-  )
-  const applyButton = (variant: 'primary' | 'secondary') => (
-    <button type="button" className={`btn block ${variant === 'primary' ? 'primary lg' : 'md'}`} disabled={busy || !canApply} onClick={() => void act('apply')}>
-      {active ? t.reviewDetail.applyVersion(active.version, active.version + 1) : t.reviewDetail.apply}
-    </button>
-  )
-  const applyBlockers = (
-    <>
-      {pending && <Notice tone="warn">{t.reviewDetail.pendingBlock}</Notice>}
-      {!pending && notComplete && <Notice tone="warn">{t.reviewDetail.unavailableBlock}</Notice>}
-      {!active && <Notice tone="warn">{t.reviewDetail.noTaskBlock}</Notice>}
-    </>
-  )
-  const manualPicker = (
-    <div className="form-grid">
-      <div className="field">
-        <span className="field-label">{t.task.terminal}</span>
-        <div className="choice-grid">
-          {CATALOG.terminals.map((x) => (
-            <Choice key={x.terminalId} selected={patch.terminalId === x.terminalId} onClick={() => setPatch({ terminalId: x.terminalId, berthId: null })} code={x.displayName} />
-          ))}
-        </div>
-      </div>
-      {manualTerminal && (
-        <div className="field">
-          <span className="field-label">
-            <span className="mono">{manualTerminal.displayName}</span> {t.task.berth}
-          </span>
-          <div className="choice-grid cols-4">
-            {manualTerminal.berths.map((b) => (
-              <Choice key={b.berthId} selected={patch.berthId === b.berthId} onClick={() => setPatch((p) => ({ ...p, berthId: b.berthId }))} code={b.label} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
+  const longName = (s: string | null | undefined) => (s?.length ?? 0) > 4
 
   return (
     <>
@@ -284,27 +255,52 @@ function ReviewDetail() {
       {/* 03 장소 비교 */}
       {showCompare && (
         <>
+          <span className="section-label">{t.reviewDetail.chooseCorrect}</span>
           <section className="card compare" aria-label={t.reviewDetail.compareLabel}>
-            <div className="compare-grid">
-              <div className="compare-cell">
+            {/* 두 칸이 곧 선택지: 왼쪽 = 등록한 장소가 맞음, 오른쪽 = 교신 장소로 바꾸기 */}
+            <div className="compare-grid" role="radiogroup" aria-label={t.reviewDetail.chooseCorrect}>
+              <button type="button" role="radio" aria-checked={pick?.kind === 'keep'} className={`compare-cell pickable ${pick?.kind === 'keep' ? 'picked' : ''}`} onClick={() => setPick({ kind: 'keep' })} disabled={busy || Boolean(done)}>
                 <span className="label">{t.reviewDetail.registered(utterance.taskVersion)}</span>
-                <span className="value">{terminalName(snapshot?.terminalId) ?? t.common.none}</span>
+                <span className={`value ${longName(terminalName(snapshot?.terminalId)) ? 'long' : ''}`}>{terminalName(snapshot?.terminalId) ?? t.common.none}</span>
                 {snapshot?.berthId && <span className="value-sub">{berthName(snapshot.terminalId, snapshot.berthId)}</span>}
-              </div>
-              <div className={`compare-cell ${kind === 'difference' ? 'diff' : heard.uncertain ? 'amb' : ''}`}>
-                <span className="label">{t.reviewDetail.heard}</span>
-                <span className={`value ${terminalDiffers ? 'differs' : ''}`}>
-                  {heard.terminal ? heard.terminal.startsWith('[') ? <span className="uncertain">{heard.terminal}</span> : heard.terminal : t.common.notMentioned}
-                </span>
-                {heard.berth && (
-                  <span className={`value-sub ${berthDiffers ? 'differs' : ''}`}>{heard.berth.startsWith('[') ? <span className="uncertain">{heard.berth}</span> : heard.berth}</span>
-                )}
-              </div>
+                <span className="pick-hint">{pick?.kind === 'keep' ? '✓ ' : ''}{t.reviewDetail.pickKeep}</span>
+              </button>
+              {single ? (
+                <button type="button" role="radio" aria-checked={picked(single)} className={`compare-cell pickable ${kind === 'difference' ? 'diff' : ''} ${picked(single) ? 'picked' : ''}`} onClick={() => setPick({ kind: 'change', ...single })} disabled={busy || Boolean(done) || !canChange}>
+                  <span className="label">{t.reviewDetail.heard}</span>
+                  <span className={`value ${terminalDiffers ? 'differs' : ''} ${longName(heard.terminal) ? 'long' : ''}`}>{heard.terminal}</span>
+                  {heard.berth && <span className={`value-sub ${berthDiffers ? 'differs' : ''}`}>{heard.berth}</span>}
+                  <span className="pick-hint">{picked(single) ? '✓ ' : ''}{t.reviewDetail.pickChange}</span>
+                </button>
+              ) : (
+                <div className={`compare-cell ${kind === 'difference' ? 'diff' : heard.uncertain ? 'amb' : ''}`}>
+                  <span className="label">{t.reviewDetail.heard}</span>
+                  <span className={`value ${terminalDiffers ? 'differs' : ''} ${longName(heard.terminal) ? 'long' : ''}`}>
+                    {heard.terminal ? heard.terminal.startsWith('[') ? <span className="uncertain">{heard.terminal}</span> : heard.terminal : t.common.notMentioned}
+                  </span>
+                  {heard.berth && (
+                    <span className={`value-sub ${berthDiffers ? 'differs' : ''}`}>{heard.berth.startsWith('[') ? <span className="uncertain">{heard.berth}</span> : heard.berth}</span>
+                  )}
+                </div>
+              )}
             </div>
             <div className="compare-foot small">
               {snapshot ? (snapshot.ownVessel === snapshot.targetVessel ? snapshot.targetVessel : `${snapshot.ownVessel} → ${snapshot.targetVessel}`) : t.reviewDetail.noTaskAtTime} · {t.reviewDetail.vesselHeard(result.entities.vessel ?? t.common.unconfirmed)}
             </div>
           </section>
+          {/* 교신 장소 후보가 여러 개(불확실)면 후보마다 버튼 — 들린 그대로 고르게 */}
+          {!single && options.length > 0 && (
+            <div className="choice-grid" role="radiogroup" aria-label={t.reviewDetail.pickChange}>
+              {options.map((o) => (
+                <button key={`${o.terminalId}-${o.berthId}`} type="button" role="radio" aria-checked={picked(o)} className={`choice ${picked(o) ? 'picked' : ''}`} aria-pressed={picked(o)} onClick={() => setPick({ kind: 'change', ...o })} disabled={busy || Boolean(done) || !canChange}>
+                  <span className="code">{placeLabel(o.terminalId, o.berthId)}</span>
+                  <span className="desc">{t.reviewDetail.pickChange}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {options.length > 0 && pending && <p className="small muted">{t.reviewDetail.pendingBlock}</p>}
+          {options.length > 0 && !pending && notComplete && <p className="small muted">{t.reviewDetail.unavailableBlock}</p>}
           {terminalDiffers && !berthDiffers && heard.berth && <p style={{ fontSize: 'var(--fs-btn)', fontWeight: 600 }}>{t.reviewDetail.sameBerthOtherTerminal}</p>}
           {berthDiffers && !terminalDiffers && <p style={{ fontSize: 'var(--fs-btn)', fontWeight: 600 }}>{t.reviewDetail.otherBerthSameTerminal}</p>}
           {active && snapshot && active.version !== snapshot.version && <p className="small muted">{t.reviewDetail.currentDiffers(active.version, `${terminalName(active.terminalId) ?? ''} ${berthName(active.terminalId, active.berthId) ?? ''}`.trim())}</p>}
@@ -328,10 +324,9 @@ function ReviewDetail() {
             <TranscriptNotes result={result} />
           </section>
           <div className="btn-grid">
-            <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.reviewDetail.rawClip} wordAligned={Boolean(result.rawTranscript?.wordAligned)} />
-            <AudioButton utteranceId={utterance.utteranceId} variant="enhanced" label={t.reviewDetail.enhancedClip} wordAligned={Boolean(result.enhancedTranscript?.wordAligned)} />
+            <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.reviewDetail.rawClip} />
+            <AudioButton utteranceId={utterance.utteranceId} variant="enhanced" label={t.reviewDetail.enhancedClip} />
           </div>
-          <p className="small muted">{t.reviewDetail.sameNotGuaranteed}</p>
         </>
       ) : (
         /* 03 근거 교신 */
@@ -345,7 +340,7 @@ function ReviewDetail() {
           </p>
           <TranscriptNotes result={result} />
           <div>
-            <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.clip.listen} wordAligned={Boolean(result.rawTranscript?.wordAligned)} />
+            <AudioButton utteranceId={utterance.utteranceId} variant="raw" label={t.clip.listen} />
           </div>
         </section>
       )}
@@ -362,8 +357,6 @@ function ReviewDetail() {
           ))}
         </ul>
       )}
-      {reasons.length > 0 && <p className="small muted">{t.comparisonHint[kind]} · {reasons.map((r) => formatReason(r, result, t)).join(' · ')}</p>}
-
       {/* 확인 행동 */}
       {/* display: contents — 고정 막대가 이 묶음이 아니라 화면 전체(.page)를 기준으로 붙게 한다 */}
       <div className="no-print" style={{ display: 'contents' }}>
@@ -379,94 +372,15 @@ function ReviewDetail() {
         )}
 
         {/* 주 행동은 화면 아래에 고정 (하단 메뉴 바로 위) — 긴 화면에서도 스크롤 없이 누를 수 있게 */}
+        {/* 마무리는 "저장하기" 하나. 맞는 쪽을 고르기 전에는 비활성 */}
         <div className={`action-bar ${done ? 'is-done' : ''}`}>
-          {clearDifference && !manual ? (
-            <>
-              {applyBlockers}
-              <p className="small" style={{ margin: 0 }}>
-                {t.reviewDetail.applyTarget}{' '}
-                <b className="mono">
-                  {terminalName(result.entities.terminalId)} {berthName(result.entities.terminalId, result.entities.berthId)}
-                </b>
-              </p>
-              {confirmBox}
-              {applyButton('primary')}
-              <div className="btn-grid">
-                <button type="button" className="btn sm" disabled={busy} onClick={() => void act('review')}>
-                  {t.reviewDetail.reviewOnly}
-                </button>
-                <button type="button" className="btn sm" disabled={busy} onClick={() => void act('dismiss')}>
-                  {t.reviewDetail.dismiss}
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <button type="button" className="btn primary lg block" disabled={busy} onClick={() => void act('review')}>
-                <IconCheck />
-                {t.reviewDetail.reviewOnly}
-              </button>
-              <button type="button" className="btn sm block" disabled={busy} onClick={() => void act('dismiss')}>
-                {t.reviewDetail.dismiss}
-              </button>
-            </>
-          )}
+          {!effectivePick && <span className="small muted">{t.reviewDetail.chooseFirst}</span>}
+          <button type="button" className="btn primary lg block" disabled={busy || !effectivePick || reviewStatus !== 'unreviewed'} onClick={() => void save()}>
+            <IconCheck />
+            {reviewStatus !== 'unreviewed' && !done ? t.review[reviewStatus] : t.reviewDetail.save}
+          </button>
         </div>
-
-        {kind !== 'unrelated' && !(clearDifference && !manual) && (
-          <section className="card soft" aria-label={t.reviewDetail.manualTitle}>
-            <h2>{t.reviewDetail.manualTitle}</h2>
-            <p className="small muted">{hasUncertainty ? t.reviewDetail.manualHintUncertain : t.reviewDetail.manualHint}</p>
-            {applyBlockers}
-            {manual ? (
-              <>
-                {manualPicker}
-                {confirmBox}
-                {applyButton('secondary')}
-                <button type="button" className="btn text" onClick={() => setManual(false)}>
-                  {t.common.cancel}
-                </button>
-              </>
-            ) : (
-              <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setManual(true)} disabled={notComplete}>
-                {t.reviewDetail.manualOpen}
-              </button>
-            )}
-          </section>
-        )}
       </div>
-
-      {extras.length > 0 && (
-        <Card className="soft" label={t.card.entitiesLabel}>
-          <h2>{t.card.entitiesLabel}</h2>
-          <dl className="kv">
-            {extras.map((it) => (
-              <div key={it.key} style={{ display: 'contents' }}>
-                <dt>{it.label}</dt>
-                <dd>{it.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      )}
-
-      {events.length > 0 && (
-        <>
-          <h2>{t.reviewDetail.history}</h2>
-          <div className="timeline-rail">
-            {events.map((e) => (
-              <Card key={e.eventId} className="soft">
-                <StatusMark className="mark" shape="circle" />
-                <div className="utt-head">
-                  <b>{t.review[e.action === 'apply' ? 'applied' : e.action === 'dismiss' ? 'dismissed' : 'reviewed']}</b>
-                  <span className="time">{formatClock(e.at)}</span>
-                </div>
-                <p className="small muted">{e.action === 'apply' ? `v${e.taskVersionBefore} → v${e.taskVersionAfter}` : t.reviewDetail.noChange} · r{e.resultRevision}</p>
-              </Card>
-            ))}
-          </div>
-        </>
-      )}
     </>
   )
 }

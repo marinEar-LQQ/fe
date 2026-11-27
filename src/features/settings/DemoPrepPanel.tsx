@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { useApp } from '../../app/AppContext'
 import { download } from '../../app/download'
 import { describeError } from '../../app/errors'
+import { seedDemoHistory } from '../../engine/demoHistory'
 import { useT } from '../../i18n'
 import { Card, Notice } from '../../ui/components'
 
@@ -28,6 +29,21 @@ export function DemoPrepPanel() {
       const { code, message } = describeError(e)
       setMsg({ tone: 'danger', text: t.prep.saveFailed(`${message} (${code})`) })
     } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 처리한 작업 미리 쌓기 → 끝나면 교신 화면을 새로 열어 쌓인 교신을 보여 준다 */
+  async function seedHistory() {
+    setBusy(true)
+    setMsg({ tone: 'info', text: t.prep.seeding })
+    try {
+      const res = await seedDemoHistory(engine)
+      setMsg({ tone: 'info', text: t.prep.seeded(res.utterances) })
+      window.setTimeout(() => window.location.assign('/monitor'), 900)
+    } catch (e) {
+      const { code, message } = describeError(e)
+      setMsg({ tone: 'danger', text: t.prep.seedFailed(`${message} (${code})`) })
       setBusy(false)
     }
   }
@@ -63,6 +79,12 @@ export function DemoPrepPanel() {
           <Notice tone={msg.tone}>{msg.text}</Notice>
         </div>
       )}
+      <button className="btn primary block" onClick={() => void seedHistory()} disabled={busy}>
+        {t.prep.seed}
+      </button>
+      <p className="small muted" style={{ margin: '0 0 12px' }}>
+        {t.prep.seedHint}
+      </p>
       <div className="btn-row">
         <button className="btn" onClick={() => void exportJson()} disabled={busy || !task}>
           {t.prep.saveJson}

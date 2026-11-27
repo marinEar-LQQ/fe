@@ -45,7 +45,8 @@ function serviceWorker(): Plugin {
         const hash = createHash('sha256')
         const files: string[] = []
         for (const [fileName, out] of Object.entries(bundle)) {
-          if (fileName.endsWith('.map') || fileName.endsWith('.wasm') || fileName === 'sw.js') continue
+          // .woff 는 .woff2 를 못 쓰는 옛 브라우저용 중복이라 뺀다 (글꼴 woff2 는 오프라인 표시를 위해 미리 받음)
+          if (fileName.endsWith('.map') || fileName.endsWith('.wasm') || fileName.endsWith('.woff') || fileName === 'sw.js') continue
           files.push(fileName)
           hash.update(fileName).update(out.type === 'chunk' ? out.code : typeof out.source === 'string' ? out.source : Buffer.from(out.source))
         }

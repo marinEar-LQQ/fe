@@ -1,30 +1,46 @@
 /*
- * 디자인 토큰 — 재디자인 시 이 파일과 src/ui 컴포넌트만 바꾸면 된다.
- * 색상·서체·여백은 확정안이 아니다 (프론트 기술설명서 02 "재디자인에 넘길 조건").
+ * 디자인 토큰 — 디자인 시안 A "해도" (design/README.md, design/00~08)
+ * 색·서체·크기·간격은 시안 값 그대로. 화면 코드는 이 토큰과 src/ui 컴포넌트만 쓴다.
  */
 :root {
-  --font-sans: 'Pretendard', system-ui, -apple-system, 'Segoe UI', 'Noto Sans KR', 'Noto Sans Myanmar', 'Padauk', sans-serif;
-  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  /* 서체: 앱에 포함된 @fontsource 글꼴 (오프라인·COEP 대응) */
+  --font-sans: 'IBM Plex Sans KR', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
 
-  --bg: #0b1520;
-  --surface: #122131;
-  --surface-2: #1a2d42;
-  --border: #284058;
-  --text: #e8eef5;
-  --text-dim: #9db0c4;
-  --text-faint: #6c8197;
-  --accent: #4fb3ff;
-  --accent-ink: #04121f;
+  /* 색 */
+  --ink: #0b2a42; /* 글자·테두리·주 버튼 */
+  --ink-2: #3f5b70; /* 보조 글자 */
+  --alert: #a3195b; /* 경고 (모양 ▲◆ 과 함께 쓴다) */
+  --alert-ink: #8a1550; /* 경고 칸 안 글자 */
+  --alert-tint: #f9dceb; /* 차이 값 강조 배경 */
+  --alert-bg: #fbe9f2; /* 경고 칸 배경 */
+  --ok: #17654f; /* 일치·문제 없음 */
+  --bg: #eef5f9;
+  --grid: #d5e4ee; /* 해도 모눈 */
+  --line-soft: #9db7c9; /* 일반 카드 테두리 */
+  --divider: #c9dce8;
+  --contour: #9cc3db; /* 등고선 장식 */
+  --surface: #ffffff;
 
-  --ok: #3ccf91;
-  --warn: #ffb547;
-  --danger: #ff6b6b;
-  --info: #8ea7ff;
-  --muted: #7d8fa3;
+  /* 이전 토큰 이름 (호환) */
+  --text: var(--ink);
+  --text-dim: var(--ink-2);
+  --text-faint: var(--ink-2);
+  --border: var(--ink);
+  --surface-2: var(--bg);
+  --warn: var(--alert);
+  --danger: var(--alert);
+  --info: var(--ink);
+  --muted: var(--ink-2);
 
-  --radius-sm: 8px;
-  --radius: 14px;
-  --radius-lg: 20px;
+  /* 모서리·선 */
+  --radius-sm: 2px;
+  --radius: 2px;
+  --line: 1px solid var(--ink);
+  --line-strong: 2px solid var(--ink);
+  --line-dashed: 1px dashed var(--ink);
+
+  /* 간격 */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -32,22 +48,40 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  --fs-xs: 12px;
-  --fs-sm: 14px;
-  --fs-md: 16px;
-  --fs-lg: 19px;
-  --fs-caption: 22px; /* 자막 */
-  --fs-xl: 26px;
+  /* 글자 크기 (시안 px) */
+  --fs-mono-xs: 11px; /* 작은 Mono 라벨 */
+  --fs-xs: 12px; /* 시각, 하단 메뉴 */
+  --fs-status: 13px; /* 카드 상태 라벨 */
+  --fs-sm: 14px; /* 라벨, 작은 버튼 */
+  --fs-btn: 15px;
+  --fs-md: 16px; /* 본문·카드 문장 */
+  --fs-lg: 17px; /* 입력, 큰 버튼, 근거 교신 */
+  --fs-recheck: 18px; /* 원음/완화음 문장 */
+  --fs-title: 20px; /* 화면 제목 */
+  --fs-place: 30px; /* 장소 코드 */
+  --fs-stat: 26px;
 
-  --touch: 48px;
+  /* 높이 */
+  --header-h: 56px;
   --nav-h: 64px;
+  --h-input: 50px;
+  --h-btn-lg: 56px;
+  --h-btn-md: 52px;
+  --h-btn: 48px;
+  --h-btn-sm: 44px;
+  --touch: 44px;
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* 큰 글씨: 문장·라벨을 키우고 장식 크기는 유지 */
 :root[data-large-text='true'] {
+  --fs-xs: 14px;
+  --fs-status: 15px;
   --fs-sm: 16px;
-  --fs-md: 18px;
-  --fs-lg: 22px;
-  --fs-caption: 28px;
-  --fs-xl: 30px;
+  --fs-btn: 17px;
+  --fs-md: 20px;
+  --fs-lg: 20px;
+  --fs-recheck: 22px;
+  --fs-title: 24px;
 }

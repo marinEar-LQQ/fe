@@ -1,5 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+// 글꼴은 앱에 포함한다 (Google Fonts 대신 — 오프라인·COEP require-corp 대응)
+import '@fontsource/ibm-plex-sans-kr/400.css'
+import '@fontsource/ibm-plex-sans-kr/500.css'
+import '@fontsource/ibm-plex-sans-kr/600.css'
+import '@fontsource/ibm-plex-sans-kr/700.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
+import '@fontsource/ibm-plex-mono/600.css'
+import '@fontsource/ibm-plex-mono/700.css'
 import App from './app/App'
 import './index.css'
 

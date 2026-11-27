@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from 'react'
+import { messagesFor } from '../i18n'
+import { loadPreferences } from './state'
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -9,15 +11,17 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
 
   render() {
     if (this.state.error) {
+      // 앱 상태 밖이라 저장된 언어로 표시
+      const t = messagesFor(loadPreferences().targetLang)
       return (
         <div className="shell">
           <main className="page">
             <div className="card">
-              <h2>화면 오류가 발생했습니다</h2>
-              <p className="muted">저장된 작업·교신 기록은 그대로 남아 있습니다. 새로고침해 주세요.</p>
+              <h2>{t.app.errorBoundary}</h2>
+              <p className="muted">{t.app.errorBoundaryHint}</p>
               <pre className="small mono" style={{ whiteSpace: 'pre-wrap' }}>{this.state.error.message}</pre>
               <button className="btn primary" onClick={() => location.reload()}>
-                새로고침
+                {t.app.reload}
               </button>
             </div>
           </main>

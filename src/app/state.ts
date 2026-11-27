@@ -62,7 +62,8 @@ export interface AppState {
   translations: Record<string, Translation>
   reviewState: Record<string, ReviewState>
   errors: { id: string; code: NoticeCode; message: string; at: number }[]
-  preferences: { targetLang: LangCode; inputDeviceId: string | null; largeText: boolean }
+  /** langChosen: 시작 언어 선택(00)을 마쳤는지. 첫 실행에만 false */
+  preferences: { targetLang: LangCode; inputDeviceId: string | null; largeText: boolean; langChosen: boolean }
   uiState: { filter: Filter }
   seenEventIds: Record<string, true>
 }
@@ -72,9 +73,11 @@ export const translationKey = (utteranceId: string, revision: number, lang: Lang
 export function loadPreferences(): AppState['preferences'] {
   try {
     const raw = JSON.parse(localStorage.getItem('marinear.prefs') ?? '{}')
-    return { targetLang: normalizeLang(raw.targetLang), inputDeviceId: raw.inputDeviceId ?? null, largeText: Boolean(raw.largeText) }
+    // 예전 버전에서 저장된 설정이 있으면 이미 앱을 쓴 사용자 → 시작 화면을 다시 보이지 않는다
+    const langChosen = typeof raw.langChosen === 'boolean' ? raw.langChosen : 'targetLang' in raw
+    return { targetLang: normalizeLang(raw.targetLang), inputDeviceId: raw.inputDeviceId ?? null, largeText: Boolean(raw.largeText), langChosen }
   } catch {
-    return { targetLang: 'ko', inputDeviceId: null, largeText: false }
+    return { targetLang: 'ko', inputDeviceId: null, largeText: false, langChosen: false }
   }
 }
 
@@ -91,7 +94,7 @@ export function initialState(prefs?: AppState['preferences']): AppState {
     translations: {},
     reviewState: {},
     errors: [],
-    preferences: prefs ?? { targetLang: 'ko', inputDeviceId: null, largeText: false },
+    preferences: prefs ?? { targetLang: 'ko', inputDeviceId: null, largeText: false, langChosen: false },
     uiState: { filter: 'all' },
     seenEventIds: {},
   }

@@ -5,6 +5,7 @@ import { createEngine, type EngineKind, type EngineSetup } from '../engine'
 import type { DemoControls } from '../engine/demo'
 import { markDisconnected } from '../engine/extensions'
 import { restoreActiveTask } from '../engine/restore'
+import { LangContext, messagesFor } from '../i18n'
 import { describeError } from './errors'
 import { useLiveGuards } from './useLiveGuards'
 import { initialState, loadPreferences, reducer, translationTargets, type Action, type AppState } from './state'
@@ -45,8 +46,26 @@ export function AppProvider({ children, engine: injected }: { children: ReactNod
     createEngine().then(setSetup, (e) => setFailure(describeError(e).message))
   }, [injected])
 
-  if (failure) return <div className="page"><div className="notice danger" role="alert">분석 엔진을 시작하지 못했습니다: {failure}</div></div>
-  if (!setup) return <div className="page"><div className="card empty" role="status"><strong>분석 엔진 준비 중…</strong></div></div>
+  // 엔진이 뜨기 전에는 저장된 언어로 안내한다
+  if (!setup || failure) {
+    const lang = loadPreferences().targetLang
+    const t = messagesFor(lang)
+    return (
+      <LangContext.Provider value={lang}>
+        <main className="page">
+          {failure ? (
+            <div className="notice danger" role="alert">
+              {t.app.engineFailed(failure)}
+            </div>
+          ) : (
+            <div className="card empty" role="status">
+              <strong>{t.app.engineStarting}</strong>
+            </div>
+          )}
+        </main>
+      </LangContext.Provider>
+    )
+  }
   return <EngineProvider setup={setup}>{children}</EngineProvider>
 }
 
@@ -130,6 +149,8 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
   useEffect(() => {
     localStorage.setItem('marinear.prefs', JSON.stringify(state.preferences))
     document.documentElement.dataset.largeText = String(state.preferences.largeText)
+    // 화면 언어 (교신 원문 요소는 lang="ko" 를 따로 단다)
+    document.documentElement.lang = state.preferences.targetLang
   }, [state.preferences])
 
   // 선택 언어 번역: crossCheck !== 'pending' 인 최종 결과에 대해서만 요청한다 (결과는 그 revision 에 묶인다)
@@ -282,7 +303,11 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     [state, engine, setup.kind, setup.offlineMode, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
   )
 
-  return <Ctx.Provider value={api}>{children}</Ctx.Provider>
+  return (
+    <Ctx.Provider value={api}>
+      <LangContext.Provider value={state.preferences.targetLang}>{children}</LangContext.Provider>
+    </Ctx.Provider>
+  )
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

@@ -157,10 +157,11 @@ describe('translationTargets', () => {
     expect(translationTargets(complete, 'id')).toEqual([{ utteranceId: 'u1', revision: 2 }])
   })
 
-  it('skips Korean, uninstalled languages and already requested revisions', () => {
+  it('skips Korean, languages outside the UI list and already requested revisions; still asks uninstalled ones for the summary', () => {
     const s = run([queued(), ev('analysis.final', { result: result(2, 'r2') })], ready())
     expect(translationTargets(s, 'ko')).toEqual([])
-    expect(translationTargets(s, 'vi')).toEqual([]) // not_installed
+    expect(translationTargets(s, 'my')).toEqual([]) // 목록에서 제외된 언어
+    expect(translationTargets(s, 'vi')).toEqual([{ utteranceId: 'u1', revision: 2 }]) // 문장 번역 미설치여도 정형 요약은 온다
     const requested = reducer(s, { type: 'translation', translation: { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id', status: 'pending', text: null, protectedTokens: [], modelVersion: null, issues: [], createdAt: '', summary: null, reference: false } })
     expect(translationTargets(requested, 'id')).toEqual([])
   })

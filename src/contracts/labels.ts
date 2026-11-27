@@ -79,7 +79,7 @@ export const TRANSLATION_STATUS_LABEL: Record<TranslationStatus, string> = {
   ready: '번역 완료',
   needs_check: '번역 확인 필요 · 코드/숫자가 바뀌었을 수 있음',
   failed: '번역 실패 · 한국어 원문을 확인하세요',
-  unavailable: '번역 자원 없음 · 한국어 원문을 확인하세요',
+  unavailable: '이 언어는 번역·요약을 제공하지 않습니다 · 한국어 원문을 확인하세요',
 }
 
 export const LANG_AVAILABILITY_LABEL: Record<LangAvailability, string> = {

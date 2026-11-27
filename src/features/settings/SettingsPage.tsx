@@ -81,7 +81,7 @@ export function SettingsPage() {
           <select id="lang" value={preferences.targetLang} onChange={(e) => setLang(e.target.value as typeof preferences.targetLang)}>
             {LANGS.map((l) => (
               <option key={l.code} value={l.code}>
-                {l.label} {l.code !== 'ko' ? `· ${l.native}` : ''} {l.tier === 'extension' ? '(확장 예정)' : ''}
+                {l.label} {l.code !== 'ko' ? `· ${l.native}` : ''}
               </option>
             ))}
           </select>

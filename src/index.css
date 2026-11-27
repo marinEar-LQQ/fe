@@ -609,3 +609,53 @@ a {
   font-weight: 500;
   color: var(--text);
 }
+
+/* ───── 번역: 정형 요약 카드(크게) + 참고 번역(작게) ───── */
+.summary-card {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+}
+.summary-line {
+  display: grid;
+  grid-template-columns: minmax(84px, auto) 1fr;
+  gap: var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.summary-line dt {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+}
+.summary-line .summary-ko {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+.summary-line dd {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 800;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.summary-line.uncertain-line {
+  border-color: var(--warn);
+  border-style: dashed;
+}
+.translation-text {
+  margin-top: var(--space-2);
+}
+.reference-translation {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+}

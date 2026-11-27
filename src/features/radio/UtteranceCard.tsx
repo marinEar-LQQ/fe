@@ -2,11 +2,11 @@ import type { AnalysisResult, ReviewState } from 'marinear-engine'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { translationKey, type MessageEntry } from '../../app/state'
-import { langLabel } from '../../contracts/lang'
-import { AUDIO_FLAG_LABEL, COMPARISON_HINT, LANG_AVAILABILITY_LABEL, STAGE_LABEL, TRANSLATION_STATUS_LABEL, formatMs, needsReview } from '../../contracts/labels'
+import { AUDIO_FLAG_LABEL, COMPARISON_HINT, STAGE_LABEL, formatMs, needsReview } from '../../contracts/labels'
 import { correctionInfo } from '../../engine/report'
 import { formatReason } from '../../engine/transcript'
 import { TranscriptNotes, TranscriptView } from './Transcript'
+import { TranslationBlock } from './TranslationBlock'
 import { Badge, ComparisonBadge, DemoBadge, ReviewBadge } from '../../ui/components'
 
 /** 하위 호환: 자막 + 확인 필요 표시 */
@@ -94,21 +94,7 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
         </div>
       )}
 
-      {lang !== 'ko' && (
-        <div className="utt-translation" lang={lang} aria-live="polite">
-          <span className="lang-tag">
-            {langLabel(lang)} ·{' '}
-            {translation
-              ? TRANSLATION_STATUS_LABEL[translation.status]
-              : availability && availability !== 'ready'
-                ? LANG_AVAILABILITY_LABEL[availability]
-                : result.crossCheck === 'pending'
-                  ? '원음 교차 검사 후 번역'
-                  : TRANSLATION_STATUS_LABEL.pending}
-          </span>
-          {translation?.text ?? <span className="muted small">한국어 원문을 기준으로 확인하세요.</span>}
-        </div>
-      )}
+      {lang !== 'ko' && <TranslationBlock lang={lang} translation={translation} crossCheckPending={result.crossCheck === 'pending'} availability={availability} />}
 
       {showReviewLink && kind !== 'unrelated' && (
         <div className="btn-row">

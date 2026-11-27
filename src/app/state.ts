@@ -15,7 +15,7 @@ import type {
   Utterance,
   UtteranceLogEntry,
 } from 'marinear-engine'
-import { normalizeLang } from '../contracts/lang'
+import { isUiLang, normalizeLang } from '../contracts/lang'
 
 /** 카드 진행 단계: 엔진 AnalysisStage + 최종(crossCheck 완료) */
 export type CardStage = AnalysisStage | 'done'
@@ -303,10 +303,12 @@ export function entryFromLog(u: UtteranceLogEntry, sessions: Session[]): Message
   }
 }
 
-/** 번역을 요청할 결과: 이 언어가 설치되어 있고, 원음 교차 검사가 끝난(complete 또는 unavailable) 최신 revision 중 아직 요청하지 않은 것 */
+/**
+ * 번역을 요청할 결과: 원음 교차 검사가 끝난(complete 또는 unavailable) 최신 revision 중 아직 요청하지 않은 것.
+ * 문장 번역 모델이 없어도 엔진이 정형 요약(summary)을 돌려주므로(status 'unavailable') 화면 언어면 요청한다.
+ */
 export function translationTargets(state: AppState, lang: LangCode): { utteranceId: string; revision: number }[] {
-  if (lang === 'ko') return []
-  if (state.engineState.readiness?.languages[lang] !== 'ready') return [] // 미설치 언어는 요청하지 않고 화면에서 안내
+  if (lang === 'ko' || !isUiLang(lang)) return []
   const out: { utteranceId: string; revision: number }[] = []
   for (const id of state.messageState.order) {
     const r = state.messageState.byId[id]?.result

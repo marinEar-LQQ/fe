@@ -194,11 +194,7 @@ export const ko = {
     identifier: '식별',
   },
   start: {
-    preparing: '시연 데이터 준비 중…',
     home: '시작 화면으로',
-    resume: '이어서 하기',
-    fresh: '새 작업 시작',
-    current: (v: string) => `진행 중인 작업: ${v}`,
     choose: '언어를 선택하세요',
     start: '시작',
   },

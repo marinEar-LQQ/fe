@@ -1,5 +1,5 @@
 import type { LangCode } from 'marinear-engine'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { demoSeedStatus } from '../../engine/demoHistory'
 import { useApp } from '../../app/AppContext'
@@ -9,9 +9,8 @@ import { CompassLogo, IconChevronDown } from '../../ui/components'
 
 /**
  * 00 시작 언어 선택 — 첫 실행, 그리고 왼쪽 위 로고를 누르면 언제든 돌아온다.
- * 작업이 이미 있으면 "이어서 하기"와 "새 작업 시작"(이전 작업은 지난 작업 일지에 남음)을 고른다.
- * 고르는 즉시 화면 언어가 바뀌고,
- * 시작을 누르면 작업 등록(작업 없음) 또는 교신(작업 있음)으로 간다. 설정에서 언제든 바꿀 수 있다.
+ * 고르는 즉시 화면 언어가 바뀌고, 시작을 누르면 교신(작업 있음) 또는 작업 등록(작업 없음)으로 간다.
+ * 첫 실행 때는 뒤에서 기본 기록(시연 데이터)을 조용히 채운다 — 화면에는 알리지 않고, 그 사이 시작을 누르면 다 채워진 뒤에 넘어간다.
  */
 export function StartPage() {
   const { state, dispatch } = useApp()
@@ -19,12 +18,14 @@ export function StartPage() {
   const navigate = useNavigate()
   const lang = state.preferences.targetLang
   const active = state.taskState.active
-  // 첫 실행 때 시연 데이터를 쌓는 동안에는 시작 버튼을 잠근다 (쌓인 뒤 '이어서 하기'가 된다)
   const preparing = useSyncExternalStore(demoSeedStatus.subscribe, demoSeedStatus.get)
-  const go = (to: string, fresh = false) => {
+  const [wanted, setWanted] = useState(false)
+  // 시작을 눌렀고 기본 기록 채우기가 끝났으면 넘어간다
+  useEffect(() => {
+    if (!wanted || preparing || !state.taskState.loaded) return
     dispatch({ type: 'set-pref', prefs: { langChosen: true } })
-    navigate(to, { replace: true, state: fresh ? { fresh: true } : undefined })
-  }
+    navigate(active ? '/monitor' : '/task', { replace: true })
+  }, [wanted, preparing, state.taskState.loaded, active, dispatch, navigate])
 
   return (
     <div className="start-screen">
@@ -48,15 +49,9 @@ export function StartPage() {
         </span>
       </div>
       <div className="start-foot">
-        {active && <p className="small muted start-current">{t.start.current(active.ownVessel)}</p>}
-        <button type="button" className="btn primary lg block" onClick={() => go(active ? '/monitor' : '/task')} disabled={preparing}>
-          {preparing ? t.start.preparing : active ? t.start.resume : t.start.start}
+        <button type="button" className="btn primary lg block" onClick={() => setWanted(true)} disabled={wanted}>
+          {t.start.start}
         </button>
-        {active && (
-          <button type="button" className="btn lg block" onClick={() => go('/task', true)}>
-            {t.start.fresh}
-          </button>
-        )}
       </div>
     </div>
   )

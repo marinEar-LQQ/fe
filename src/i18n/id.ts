@@ -190,11 +190,7 @@ export const id: Messages = {
     identifier: 'ID',
   },
   start: {
-    preparing: 'Menyiapkan data demo…',
     home: 'Kembali ke awal',
-    resume: 'Lanjutkan',
-    fresh: 'Mulai tugas baru',
-    current: (v: string) => `Tugas berjalan: ${v}`,
     choose: 'Pilih bahasa Anda',
     start: 'Mulai',
   },

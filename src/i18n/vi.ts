@@ -190,11 +190,7 @@ export const vi: Messages = {
     identifier: 'Mã nhận dạng',
   },
   start: {
-    preparing: 'Đang chuẩn bị dữ liệu demo…',
     home: 'Về màn hình bắt đầu',
-    resume: 'Tiếp tục',
-    fresh: 'Bắt đầu công việc mới',
-    current: (v: string) => `Công việc đang làm: ${v}`,
     choose: 'Chọn ngôn ngữ của bạn',
     start: 'Bắt đầu',
   },

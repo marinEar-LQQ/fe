@@ -190,11 +190,7 @@ export const en: Messages = {
     identifier: 'ID',
   },
   start: {
-    preparing: 'Preparing demo data…',
     home: 'Back to start',
-    resume: 'Continue',
-    fresh: 'Start a new task',
-    current: (v: string) => `Task in progress: ${v}`,
     choose: 'Choose your language',
     start: 'Start',
   },

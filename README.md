@@ -3,16 +3,31 @@
 조타실 휴대폰·태블릿에서 쓰는 PWA. 들어온 VHF 교신의 핵심 정보(선박·터미널·선석)를 **내 작업 기록과 비교**하고, 원음/완화음 인식 차이·번역·작업 일지를 보여준다.
 기준 문서: 프론트엔드 / 백엔드 / 통합 기술설명서 v1.0 (2026.11.27)
 
-분석 엔진은 백엔드 패키지 [`marinear-engine`](https://github.com/marinEar-LQQ/backend) (`github:marinEar-LQQ/backend`)를 쓴다. 상시 서버 없이 브라우저 Web Worker 안에서 모델이 돈다.
+분석 엔진은 백엔드 패키지 [`marinear-engine`](https://github.com/marinEar-LQQ/backend) (`github:marinEar-LQQ/backend`)를 쓴다. 엔진은 브라우저 Web Worker 안에서 돌고, 음성인식·번역은 **온라인(기본, 중계 서버를 통한 클라우드 모델)** 또는 **오프라인(기기 안 모델)** 으로 한다.
+화면 디자인은 `design/` 의 시안 A(00~08)를 따른다. 진행 상태는 `design/PROGRESS.md`, 실제 음성 검증 안내는 `design/VERIFY.md`.
 
 ## 실행
 
 ```bash
-npm install                    # marinear-engine 은 GitHub 에서 받아 설치 중 dist 를 빌드한다
-npm run dev                    # http://localhost:5173 — 실제 엔진(WorkerEngineClient)
+npm ci                         # marinear-engine 은 GitHub 에서 받아 설치 중 dist 를 빌드한다
+npm run dev                    # http://localhost:5173 — 엔진 모드는 설정 화면 값 (기본 온라인)
 npm test                       # 단위·통합 테스트 (reducer 규칙 + MockEngineClient 시나리오·파일 경로)
 npm run build                  # 타입 검사 + 배포 빌드
 ```
+
+### 엔진 모드
+
+| 모드 | 실행 | 필요한 것 | 음성 전송 |
+| --- | --- | --- | --- |
+| **온라인** (기본) | 백엔드 폴더에서 `npm run server` (중계 서버, `http://localhost:8787`) → 프론트 `npm run dev` | 인터넷, 백엔드 `.env` 의 `GEMINI_API_KEY`·`NVIDIA_API_KEY` | **외부(Google Gemini, NVIDIA)로 전송** — 첫 분석 전 동의 창, 설정에 고지 |
+| 오프라인 | 프론트 `npm run dev` → 설정 › 분석 엔진에서 오프라인 → 새로고침 → 모델 다운로드(약 565MB, 첫 1회) | 첫 설치 때만 인터넷 | 기기 밖으로 나가지 않음 |
+| 시연(Mock) | `VITE_ENGINE=mock npm run dev` | 없음 | 없음 (시연 고정 데이터) |
+
+- 모드는 설정 › 분석 엔진에서 바꾸고(브라우저에 저장), **새로고침하면** 적용된다. 현재 모드는 상단 오른쪽과 설정에 글자로 보인다(`readiness.mode`).
+- 중계 서버 주소: `VITE_PROXY_URL` (기본 `http://localhost:8787`). 예: `VITE_PROXY_URL=http://192.168.0.10:8787 npm run dev`
+- 온라인 모드는 시작할 때와 "다시 시도"를 누를 때 중계 서버를 확인한다(`/api/health`). 확인되기 전·실패하면 수신·파일 분석이 막히고 **ONLINE_UNAVAILABLE** 안내(다시 시도 · 오프라인 모드로 전환 · 원음 보존)가 뜬다. 자동 재시도하지 않는다.
+- 온라인 번역은 `reference:false` 로 와서 일반 번역으로 보인다. `reference:true`(오프라인 Opus-MT)일 때만 "참고 번역(부정확할 수 있음)" 라벨.
+- API 키는 백엔드 `.env` 에만 둔다. 프론트에는 키가 없다. **`.env` 는 절대 커밋하지 않는다.**
 
 - 음성 입력(getUserMedia)은 **HTTPS 또는 localhost** 에서만 동작한다. 태블릿 실기기 테스트는 HTTPS 배포 주소로 한다.
 - `npm install` 은 `github:marinEar-LQQ/backend` 저장소에 접근할 수 있어야 한다. SSH 키는 필요 없다 — npm 은 GitHub 의존성을 `codeload.github.com` https tarball 로 받는다. 팀원은 `npm ci` 를 권장한다(lock 의 커밋 고정).
@@ -33,7 +48,7 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 
 | | |
 | --- | --- |
-| 주입 지점 | `src/engine/index.ts` 한 곳. `VITE_ENGINE=mock` → `MockEngineClient.create()`, 기본 → `new WorkerEngineClient(new EngineWorker(), { allowRemote: true })` |
+| 주입 지점 | `src/engine/index.ts` 한 곳. `VITE_ENGINE=mock` → `MockEngineClient.create()` · 온라인 → `new WorkerEngineClient(new EngineWorker(), { mode: 'online', proxyUrl })` · 오프라인 → `{ mode: 'offline', allowRemote }` |
 | 실패 처리 | 엔진은 `EngineError` 예외를 던진다. `VERSION_CONFLICT`·`RESULT_STALE` 는 **자동 재시도하지 않고** 최신 기준·결과를 다시 불러와 보여준다 |
 | 작업 복원 | 앱 시작 시 `listTasks()` → 가장 최근 작업 → `getTaskLog()` 의 `activeVersion` |
 | 메모 | `engine.saveNote(taskId, text)`. 삭제는 빈 내용으로 저장(`deleted: true`, 기록은 남음) |
@@ -47,7 +62,7 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 - vitest 는 `server.deps.inline: ['marinear-engine']` — 패키지 dist 가 확장자 없는 import(번들러 전용)라 Node 에서 직접 못 읽는다.
 - `prebuild`(`scripts/clean-dist.mjs`)가 dist 를 지운다. Node 24 의 재귀 `fs.rmSync`(Vite `emptyOutDir` 도 사용)가 Windows 비ASCII 경로(예: `바탕 화면`)에서 프로세스를 죽이는 문제 우회.
 
-## 모델 준비 (설정 › 분석 엔진)
+## 모델 준비 (설정 › 분석 엔진 — 오프라인 모드만)
 
 - **모델 다운로드** → `loadAssets(DEFAULT_ASSET_MANIFEST, onProgress)`. 모델별 받은 용량·%·상태(다운로드/검증/준비/오류)와 자체 검사 결과를 표시한다.
 - 번역 언어별 사용 가능 여부(`readiness.languages`), `offlineReady`, `canAnalyze`, 카탈로그 버전(시연용 여부)을 표시한다.
@@ -124,6 +139,13 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 
 > 확인된 범위 (2026-11-27, headless Chrome + `vite preview`): SW 제어 상태에서 네트워크를 끊고 `/settings` `/monitor` `/report` 재진입, `crossOriginIsolated` 유지, 엔진 Worker 기동까지 확인. 모델 설치 후 오프라인 분석은 이 환경에서 Hugging Face 접속이 막혀 확인하지 못했다.
 
+## 배포 시 주의
+
+- **중계 서버는 지금 `127.0.0.1`(같은 PC)에서만 열린다.** 태블릿·휴대폰에서 온라인 모드를 쓰려면 중계 서버를 별도 서버에 배포하고, 그 서버의 `ALLOWED_ORIGINS` 에 프론트 주소(예: `https://marinear.example.com`)를 넣어야 한다. 프론트는 `VITE_PROXY_URL` 로 그 주소를 가리켜 빌드한다.
+- HTTPS 로 배포한 프론트는 `http://` 중계 서버를 부를 수 없다(혼합 콘텐츠 차단). 중계 서버도 HTTPS 로 연다.
+- 배포 서버(정적 호스팅)에 `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp` 헤더가 필요하다. 중계 서버 응답에는 이미 CORS 와 `Cross-Origin-Resource-Policy: cross-origin` 이 있어 COEP 아래에서 막히지 않는다(로컬에서 확인).
+- API 키는 중계 서버 환경 변수로만 둔다. 프론트 빌드·저장소에 키를 넣지 않는다.
+
 ## 화면
 
 | 메뉴 | 경로 | 기능 |
@@ -143,6 +165,8 @@ src/engine/         엔진 주입(index), 시연 제어(demo), 확장 기능 가
 src/contracts/      화면용 라벨·언어 목록·카탈로그 헬퍼 (타입 원본은 marinear-engine)
 src/audio/          getUserMedia + AudioWorklet 캡처 (public/worklets)
 src/pwa/            Service Worker 템플릿 (빌드 때 dist/sw.js 생성)
+src/i18n/           화면 문구 ko(원본)/en/id/vi — useT(). 키 누락은 빌드 오류. 검수 목록: design/I18N_TODO.md
+design/             디자인 시안 A(00~08), PROGRESS.md, VERIFY.md (compare/ 는 비교 캡처 — 커밋하지 않음)
 src/ui/             재디자인 가능한 표시 부품 + 디자인 토큰(tokens.css)
 ```
 

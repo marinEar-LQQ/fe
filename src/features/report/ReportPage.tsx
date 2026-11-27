@@ -1,19 +1,17 @@
-import type { ExportFormat, TaskLog } from 'marinear-engine'
+import type { TaskLog } from 'marinear-engine'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
-import { download } from '../../app/download'
 import { describeError } from '../../app/errors'
 import { formatClock, formatDate } from '../../contracts/labels'
 import { buildTimeline, displayTranscript, reportStats, type TimelineItem } from '../../engine/report'
 import { headline } from '../../engine/transcript'
 import { useT } from '../../i18n'
-import { DemoBadge, EmptyState, IconPlay, KIND_MARK, Notice, StatusLabel, StatusMark } from '../../ui/components'
+import { DemoBadge, EmptyState, KIND_MARK, Notice, StatusLabel, StatusMark } from '../../ui/components'
 import { placeText } from '../radio/MonitorPage'
-import { useClipPlayer } from '../radio/useClipPlayer'
 
-/** 06 타임라인 카드 하나 (▲◆○ 표식 · 시각 · 원문 · 상태 라벨 · 음성 듣기) */
-function TimelineCard({ item, onDeleteNote, player }: { item: TimelineItem; onDeleteNote: (id: string) => void; player: ReturnType<typeof useClipPlayer> }) {
+/** 06 타임라인 카드 하나 (▲◆○ 표식 · 시각 · 원문 · 상태 라벨). 음성 재생은 교신·재확인 화면에서 한다 */
+function TimelineCard({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote: (id: string) => void }) {
   const t = useT()
   const time = <span className="time">{formatClock(item.at)}</span>
 
@@ -22,7 +20,6 @@ function TimelineCard({ item, onDeleteNote, player }: { item: TimelineItem; onDe
     const result = entry.result
     const mark = result ? KIND_MARK[result.comparison.kind] : { shape: 'circle' as const, tone: 'plain' as const }
     const id = entry.utterance.utteranceId
-    const msg = player.msgFor(id)
     return (
       <li className="card soft">
         <StatusMark className="mark" shape={mark.shape} />
@@ -42,12 +39,7 @@ function TimelineCard({ item, onDeleteNote, player }: { item: TimelineItem; onDe
             {result && (result.comparison.kind === 'difference' || result.comparison.kind === 'ambiguous') && <span className="small muted">{t.review[item.reviewState]}</span>}
             {entry.fixture && <DemoBadge />}
           </span>
-          <button type="button" className="btn sm ghost no-print" onClick={() => void player.play(id)}>
-            <IconPlay />
-            {t.clip.listen}
-          </button>
         </div>
-        {msg && <p className="small muted">{msg}</p>}
       </li>
     )
   }
@@ -109,13 +101,11 @@ function TimelineCard({ item, onDeleteNote, player }: { item: TimelineItem; onDe
 export function ReportPage() {
   const { state, engine } = useApp()
   const t = useT()
-  const player = useClipPlayer()
   const task = state.taskState.active
   const [log, setLog] = useState<TaskLog | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [memo, setMemo] = useState('')
   const [msg, setMsg] = useState<{ tone: 'info' | 'danger'; text: string } | null>(null)
-  const [choosing, setChoosing] = useState(false)
 
   const reload = useCallback(async () => {
     if (!task) return
@@ -184,14 +174,19 @@ export function ReportPage() {
     }
   }
 
-  async function exportAs(format: ExportFormat) {
-    setChoosing(false)
+  /**
+   * 작업 로그 저장: 파일로 내려받지 않고 앱 DB(엔진 저장소, IndexedDB)에 남긴다.
+   * 교신·확인·기준 변경은 이미 DB에 있으므로, 쓰던 메모 + "저장 시점 요약" 기록을 더해 일지에 고정한다.
+   * (파일 내보내기는 설정 → 시연 준비에서 계속 가능)
+   */
+  async function saveWorkLog() {
+    if (!task || !(await saveMemo())) return
     try {
-      const file = await engine.exportTaskLog(log!.task.taskId, format)
-      download(file.filename, file.mimeType, file.content)
-      setMsg({ tone: 'info', text: t.report.exported(file.filename) })
+      await engine.saveNote(task.taskId, t.report.snapshot(stats.utterances, stats.userChecks, stats.unchecked))
+      setMsg({ tone: 'info', text: t.report.savedToApp })
+      await reload()
     } catch (e) {
-      setMsg({ tone: 'danger', text: t.report.exportFailed(describeError(e).message) })
+      setMsg({ tone: 'danger', text: t.report.saveFailed(describeError(e).message) })
     }
   }
 
@@ -234,7 +229,7 @@ export function ReportPage() {
         <div className="timeline-rail">
           <ol className="timeline">
             {timeline.map((item, i) => (
-              <TimelineCard key={i} item={item} onDeleteNote={(id) => void removeMemo(id)} player={player} />
+              <TimelineCard key={i} item={item} onDeleteNote={(id) => void removeMemo(id)} />
             ))}
           </ol>
         </div>
@@ -249,34 +244,13 @@ export function ReportPage() {
       </section>
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
       <div className="btn-grid no-print">
-        <button
-          type="button"
-          className="btn primary md"
-          aria-expanded={choosing}
-          onClick={async () => {
-            // 일지 저장: 쓰던 메모를 먼저 일지에 넣고, 내보낼 형식을 고른다
-            if (await saveMemo()) setChoosing((c) => !c)
-          }}
-        >
+        <button type="button" className="btn primary md" onClick={() => void saveWorkLog()}>
           {t.report.saveLog}
         </button>
         <button type="button" className="btn md" onClick={() => window.print()}>
           {t.report.print}
         </button>
       </div>
-      {choosing && (
-        <div className="card soft no-print" role="group" aria-label={t.report.formatLabel}>
-          <span className="small muted">{t.report.formatHint}</span>
-          <div className="btn-grid">
-            <button type="button" className="btn" onClick={() => void exportAs('txt')}>
-              TXT
-            </button>
-            <button type="button" className="btn" onClick={() => void exportAs('json')}>
-              JSON
-            </button>
-          </div>
-        </div>
-      )}
     </>
   )
 }

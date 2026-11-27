@@ -84,15 +84,17 @@ export function TaskPage() {
       <h1>{active ? t.task.titleEdit : t.task.titleNew}</h1>
 
       <form onSubmit={onSubmit} noValidate className="form-grid">
-        <div className={`field ${errors.ownVessel ? 'invalid' : ''}`}>
+        {/* 선박명 하나로 입력 → 엔진의 내 선박·작업 대상 선박 둘 다에 같은 이름을 넣는다 (교신 판정은 둘 중 하나만 맞아도 내 작업) */}
+        <div className={`field ${errors.ownVessel || errors.targetVessel ? 'invalid' : ''}`}>
           <label htmlFor="own">{t.task.ownVessel}</label>
-          <input id="own" value={draft.ownVessel} onChange={(e) => set('ownVessel', e.target.value)} autoComplete="off" aria-invalid={!!errors.ownVessel} />
+          <input
+            id="own"
+            value={draft.ownVessel}
+            onChange={(e) => setDraft((d) => ({ ...d, ownVessel: e.target.value, targetVessel: e.target.value }))}
+            autoComplete="off"
+            aria-invalid={!!(errors.ownVessel || errors.targetVessel)}
+          />
           {err('ownVessel')}
-        </div>
-        <div className={`field ${errors.targetVessel ? 'invalid' : ''}`}>
-          <label htmlFor="target">{t.task.targetVessel}</label>
-          <input id="target" value={draft.targetVessel} onChange={(e) => set('targetVessel', e.target.value)} autoComplete="off" aria-invalid={!!errors.targetVessel} />
-          {err('targetVessel')}
         </div>
 
         {(port || CATALOG.kind === 'demo') && (

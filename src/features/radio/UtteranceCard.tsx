@@ -133,9 +133,9 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
 
       {kind === 'ambiguous' && (
         <div className="btn-grid" style={{ marginTop: 2 }}>
-          <button type="button" className="btn sm" onClick={() => void player.play(utterance.utteranceId)}>
+          <button type="button" className="btn sm" onClick={() => void (player.playing === utterance.utteranceId ? player.stop() : player.play(utterance.utteranceId, 'raw'))}>
             <IconPlay />
-            {t.clip.listen}
+            {player.playing === utterance.utteranceId ? '■' : t.report.listenRaw}
           </button>
           <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`}>
             {t.card.recheck}
@@ -143,10 +143,16 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
         </div>
       )}
       {kind === 'difference' && (
-        <Link className="link-row" to={`/reviews/${utterance.utteranceId}`}>
-          {t.card.compare}
-          <span aria-hidden="true">→</span>
-        </Link>
+        // 확인이 필요한 교신(장소 차이)도 카드에서 바로 원음을 들어 볼 수 있게
+        <div className="btn-grid" style={{ marginTop: 2 }}>
+          <button type="button" className="btn sm" onClick={() => void (player.playing === utterance.utteranceId ? player.stop() : player.play(utterance.utteranceId, 'raw'))}>
+            <IconPlay />
+            {player.playing === utterance.utteranceId ? '■' : t.report.listenRaw}
+          </button>
+          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`}>
+            {t.card.compare}
+          </Link>
+        </div>
       )}
       {kind === 'unknown' && (
         <Link className="link-row" to={`/reviews/${utterance.utteranceId}`}>

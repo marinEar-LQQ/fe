@@ -1,4 +1,4 @@
-import { analyzeFile, type EngineClient, type LangCode, type ReviewCommand, type ReviewEvent, type SaveTaskResult, type TaskDraft } from 'marinear-engine'
+import { DEFAULT_ASSET_MANIFEST, analyzeFile, type EngineClient, type LoadProgress, type LangCode, type ReviewCommand, type ReviewEvent, type SaveTaskResult, type TaskDraft } from 'marinear-engine'
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { CaptureError, startCapture, type CaptureHandle } from '../audio/capture'
 import { createEngine, type EngineKind, type EngineSetup } from '../engine'
@@ -23,10 +23,15 @@ interface AppApi {
   saveTask: (draft: TaskDraft) => Promise<SaveTaskResult>
   review: (cmd: ReviewCommand) => Promise<ReviewEvent>
   refreshReadiness: () => Promise<void>
+  /** loadAssets(DEFAULT_ASSET_MANIFEST) — 모델 다운로드(최초) 또는 캐시에서 다시 불러와 자체 검사 */
+  loadModels: () => Promise<void>
   setLang: (lang: LangCode) => void
 }
 
 const Ctx = createContext<AppApi | null>(null)
+
+/** 모델을 한 번이라도 준비 완료한 기기 표시 (모델 파일 자체는 브라우저 Cache Storage 에 있다) */
+const ASSETS_INSTALLED_KEY = 'marinear.assetsInstalled'
 
 export function AppProvider({ children, engine: injected }: { children: ReactNode; engine?: EngineSetup }) {
   const [setup, setSetup] = useState<EngineSetup | null>(injected ?? null)
@@ -64,6 +69,43 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       fail(e)
     }
   }, [engine, fail])
+
+  // 모델 준비: 진행률 이벤트가 매우 잦아서 200ms 단위로 모아 화면에 반영한다
+  const progressBuf = useRef<Map<string, LoadProgress>>(new Map())
+  const progressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushProgress = useCallback(() => {
+    progressTimer.current = null
+    if (progressBuf.current.size === 0) return
+    dispatch({ type: 'assets-progress', progress: [...progressBuf.current.values()] })
+    progressBuf.current.clear()
+  }, [])
+
+  const loadModels = useCallback(async () => {
+    if (stateRef.current.assets.loading) return
+    dispatch({ type: 'assets-start' })
+    let error: string | null = null
+    try {
+      const readiness = await engine.loadAssets(DEFAULT_ASSET_MANIFEST, (p) => {
+        progressBuf.current.set(p.modelId, p)
+        progressTimer.current ??= setTimeout(flushProgress, 200)
+      })
+      dispatch({ type: 'readiness', readiness })
+      if (readiness.canAnalyze) localStorage.setItem(ASSETS_INSTALLED_KEY, '1')
+    } catch (e) {
+      const { code, message } = describeError(e)
+      error = `${message} (${code})`
+      await refreshReadiness()
+    } finally {
+      if (progressTimer.current) clearTimeout(progressTimer.current)
+      flushProgress()
+      dispatch({ type: 'assets-done', error })
+    }
+  }, [engine, flushProgress, refreshReadiness])
+
+  // 이전에 모델을 받아 둔 기기면 시작할 때 캐시에서 다시 불러온다 (Worker 는 재시작마다 모델을 메모리에 올려야 함)
+  useEffect(() => {
+    if (setup.kind === 'worker' && localStorage.getItem(ASSETS_INSTALLED_KEY) === '1') void loadModels()
+  }, [setup.kind, loadModels])
 
   // 엔진 이벤트 구독 + 초기 상태 복원
   useEffect(() => {
@@ -235,9 +277,10 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       saveTask: (draft) => engine.saveTask(draft, stateRef.current.taskState.active?.version),
       review: (cmd) => engine.reviewUtterance(cmd),
       refreshReadiness,
+      loadModels,
       setLang: (lang) => dispatch({ type: 'set-pref', prefs: { targetLang: lang } }),
     }),
-    [state, engine, setup.kind, demo, startDemo, startFile, startLive, stop, refreshReadiness],
+    [state, engine, setup.kind, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
   )
 
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>

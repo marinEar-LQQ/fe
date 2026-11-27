@@ -4,6 +4,7 @@ import type {
   AnyEngineEvent,
   ErrorCode,
   LangCode,
+  LoadProgress,
   Readiness,
   ReviewState,
   Session,
@@ -38,6 +39,8 @@ export interface AppState {
   taskState: { active: TaskVersion | null; loaded: boolean }
   inputState: { status: UiInputStatus; level: number; detail: string | null }
   engineState: { queueDepth: number; readiness: Readiness | null }
+  /** 모델 다운로드·검사 진행 (설정 > 분석 엔진). 화면 이동해도 유지 */
+  assets: { loading: boolean; progress: Record<string, LoadProgress>; error: string | null }
   /** source 가 있으면 수신/분석 중. 파일 분석은 analyzeFile 이 세션을 직접 열어 sessionId 가 없을 수 있다. */
   session: { sessionId: string | null; source: UiSource | null }
   messageState: { order: string[]; byId: Record<string, MessageEntry> }
@@ -65,6 +68,7 @@ export function initialState(prefs?: AppState['preferences']): AppState {
     taskState: { active: null, loaded: false },
     inputState: { status: 'idle', level: 0, detail: null },
     engineState: { queueDepth: 0, readiness: null },
+    assets: { loading: false, progress: {}, error: null },
     session: { sessionId: null, source: null },
     messageState: { order: [], byId: {} },
     translations: {},
@@ -80,6 +84,9 @@ export type Action =
   | { type: 'engine-event'; event: AnyEngineEvent }
   | { type: 'task-loaded'; task: TaskVersion | null }
   | { type: 'readiness'; readiness: Readiness }
+  | { type: 'assets-start' }
+  | { type: 'assets-progress'; progress: LoadProgress[] }
+  | { type: 'assets-done'; error: string | null }
   | { type: 'session'; sessionId: string | null; source: UiSource | null }
   | { type: 'input'; status: UiInputStatus; level?: number; detail?: string | null }
   | { type: 'input-level'; level: number }
@@ -98,6 +105,15 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, taskState: { active: action.task, loaded: true } }
     case 'readiness':
       return { ...state, engineState: { ...state.engineState, readiness: action.readiness } }
+    case 'assets-start':
+      return { ...state, assets: { loading: true, progress: {}, error: null } }
+    case 'assets-progress': {
+      const progress = { ...state.assets.progress }
+      for (const pr of action.progress) progress[pr.modelId] = pr
+      return { ...state, assets: { ...state.assets, progress } }
+    }
+    case 'assets-done':
+      return { ...state, assets: { ...state.assets, loading: false, error: action.error } }
     case 'session':
       return { ...state, session: { sessionId: action.sessionId, source: action.source } }
     case 'input':

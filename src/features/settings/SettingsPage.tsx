@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useApp } from '../../app/AppContext'
 import { listAudioInputs } from '../../audio/capture'
 import { LANGS } from '../../contracts/lang'
-import { ASSET_STATUS_LABEL } from '../../contracts/labels'
-import { Badge, Card, Notice } from '../../ui/components'
+import { Card } from '../../ui/components'
+import { EnginePanel } from './EnginePanel'
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -11,11 +11,10 @@ interface BeforeInstallPromptEvent extends Event {
 
 const fmtBytes = (n?: number) => (n === undefined ? '-' : n > 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.round(n / 1e6)} MB`)
 
-const ASSET_TONE = { ready: 'ok', missing: 'warn', downloading: 'info', verifying: 'info', integrity_failed: 'danger', error: 'danger' } as const
 
 export function SettingsPage() {
   const { state, dispatch, setLang } = useApp()
-  const { preferences, engineState } = state
+  const { preferences } = state
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [storage, setStorage] = useState<{ usage?: number; quota?: number; persisted?: boolean } | null>(null)
   const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null)
@@ -37,7 +36,6 @@ export function SettingsPage() {
     return () => window.removeEventListener('beforeinstallprompt', onPrompt)
   }, [])
 
-  const readiness = engineState.readiness
   const labelsHidden = devices.length > 0 && devices.every((d) => !d.label)
 
   return (
@@ -61,33 +59,7 @@ export function SettingsPage() {
         </p>
       </Card>
 
-      <Card>
-        <div className="card-title-row">
-          <h2>분석 엔진 · 오프라인 준비</h2>
-          {readiness && (readiness.offlineReady ? <Badge tone="ok">오프라인 준비 완료</Badge> : <Badge tone="warn">오프라인 준비 미완료</Badge>)}
-        </div>
-        {readiness?.fixtureMode && (
-          <div style={{ marginBottom: 12 }}>
-            <Notice tone="warn">현재 시연(Mock) 엔진입니다. 자막·비교·번역은 시연용 고정 데이터이며 실제 음성 분석이 아닙니다.</Notice>
-          </div>
-        )}
-        <ul className="timeline">
-          {readiness?.models.map((m) => (
-            <li key={m.modelId} style={{ gridTemplateColumns: '1fr auto' }}>
-              <div>
-                <div className="t-title" style={{ fontWeight: 600 }}>
-                  {m.modelId}
-                </div>
-                <div className="t-detail">{m.role}</div>
-              </div>
-              <Badge tone={ASSET_TONE[m.status]}>{ASSET_STATUS_LABEL[m.status]}</Badge>
-            </li>
-          ))}
-        </ul>
-        <p className="small muted" style={{ marginBottom: 0 }}>
-          앱 화면·Worker·WASM·모델·장소 데이터·선택 언어 번역 자원이 모두 로컬에 있고 자체 검사를 통과해야 오프라인 준비 완료로 표시됩니다. 앱 설치 여부와는 별개입니다.
-        </p>
-      </Card>
+      <EnginePanel />
 
       <Card>
         <h2>번역 언어</h2>

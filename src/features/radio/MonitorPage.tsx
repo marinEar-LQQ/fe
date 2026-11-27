@@ -14,8 +14,8 @@ export function MonitorPage() {
   const running = session.source !== null
   const task = taskState.active
   const readiness = engineState.readiness
-  // 작업이 없으면 엔진이 세션을 열 수 없다 (openSession 은 taskId 필수)
-  const blockedReason = !task ? 'no-task' : null
+  // 작업이 없으면 세션을 열 수 없고(openSession 은 taskId 필수), 모델이 없으면 MODEL_NOT_READY
+  const blockedReason = !task ? 'no-task' : !readiness ? 'loading' : !readiness.canAnalyze ? 'model' : null
 
   const entries = messageState.order
     .map((id) => messageState.byId[id])
@@ -32,6 +32,15 @@ export function MonitorPage() {
       {!task && taskState.loaded && (
         <Notice tone="warn" action={<Link className="btn sm primary" to="/task">작업 등록</Link>}>
           등록된 작업이 없어 수신·파일 분석을 시작할 수 없습니다. 오늘 작업을 먼저 등록하세요.
+        </Notice>
+      )}
+
+      {task && blockedReason === 'model' && (
+        <Notice tone="warn" action={<Link className="btn sm primary" to="/settings#engine">설정으로</Link>}>
+          <b>모델 준비 필요</b>
+          <div className="small">
+            {state.assets.loading ? '음성인식 모델을 준비하고 있습니다. 끝나면 수신·파일 분석을 시작할 수 있습니다.' : '음성인식 모델이 준비되지 않아 분석을 시작할 수 없습니다. 설정 › 분석 엔진에서 모델을 내려받으세요.'}
+          </div>
         </Notice>
       )}
 

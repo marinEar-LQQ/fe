@@ -19,6 +19,19 @@ export function SettingsPage() {
   const [storage, setStorage] = useState<{ usage?: number; quota?: number; persisted?: boolean } | null>(null)
   const [installEvt, setInstallEvt] = useState<BeforeInstallPromptEvent | null>(null)
   const [persistMsg, setPersistMsg] = useState<string | null>(null)
+  const [shell, setShell] = useState<{ version: string; files: number } | 'none' | null>(null)
+
+  // 앱 화면(shell) 캐시 상태: 활성 Service Worker 에 버전을 묻는다. 개발 서버에서는 SW 를 등록하지 않는다.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return void setShell('none')
+    void navigator.serviceWorker.getRegistration().then((reg) => {
+      const sw = reg?.active
+      if (!sw) return setShell('none')
+      const ch = new MessageChannel()
+      ch.port1.onmessage = (e: MessageEvent<{ version: string; files: number }>) => setShell(e.data)
+      sw.postMessage('version', [ch.port2])
+    })
+  }, [])
   const installed = window.matchMedia?.('(display-mode: standalone)').matches
 
   useEffect(() => {
@@ -125,6 +138,11 @@ export function SettingsPage() {
             Android Chrome: 메뉴 ⋮ → ‘홈 화면에 추가’. iPhone Safari: 공유 → ‘홈 화면에 추가’. 조타실에서는 화면을 켜둔 상태로 사용하세요. 화면 잠금·백그라운드에서는 연속 수신을 보장하지 않습니다.
           </p>
         )}
+        <p className="small muted" style={{ marginBottom: 0 }}>
+          앱 화면 캐시: {shell === null ? '확인 중…' : shell === 'none' ? '없음 (개발 서버이거나 아직 설치 전)' : `버전 ${shell.version} · 파일 ${shell.files}개 저장됨`}
+          <br />
+          앱 화면 캐시는 화면을 다시 여는 데만 필요합니다. 분석까지 오프라인으로 되는지는 ‘분석 엔진 · 오프라인 준비’ 표시를 따르세요.
+        </p>
       </Card>
     </>
   )

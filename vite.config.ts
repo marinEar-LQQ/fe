@@ -1,6 +1,9 @@
 /// <reference types="vitest/config" />
 import react from '@vitejs/plugin-react'
-import { defineConfig } from 'vite'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative, sep } from 'node:path'
+import { defineConfig, type Plugin } from 'vite'
 
 /**
  * COOP/COEP: crossOriginIsolated 가 켜져야 ONNX Runtime WASM 이 멀티스레드(SharedArrayBuffer)로 돈다.
@@ -11,9 +14,62 @@ const isolationHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
 }
 
+function listFiles(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? listFiles(join(dir, e.name)) : [join(dir, e.name)]))
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 빌드 산출물로 Service Worker 를 만든다 (src/pwa/sw.template.js → dist/sw.js).
+ * precache = 해시된 JS/CSS·엔진 Worker 청크·index.html + public 파일(manifest·아이콘·worklet).
+ * .wasm 은 미리 받지 않는다: ONNX Runtime 은 transformers.js 가 CDN 에서 받아 자체 캐시에 둔다(엔진 관리).
+ * 같은 출처 .wasm 을 쓰게 되면 SW 가 처음 사용할 때 캐시한다.
+ */
+function serviceWorker(): Plugin {
+  let base = '/'
+  let publicDir = ''
+  return {
+    name: 'marinear-sw',
+    apply: 'build',
+    configResolved(config) {
+      base = config.base
+      publicDir = config.publicDir
+    },
+    generateBundle: {
+      // index.html 은 Vite HTML 플러그인이 같은 단계에서 내보내므로 맨 뒤에서 실행한다
+      order: 'post',
+      handler(_options, bundle) {
+        const hash = createHash('sha256')
+        const files: string[] = []
+        for (const [fileName, out] of Object.entries(bundle)) {
+          if (fileName.endsWith('.map') || fileName.endsWith('.wasm') || fileName === 'sw.js') continue
+          files.push(fileName)
+          hash.update(fileName).update(out.type === 'chunk' ? out.code : typeof out.source === 'string' ? out.source : Buffer.from(out.source))
+        }
+        for (const abs of listFiles(publicDir)) {
+          const fileName = relative(publicDir, abs).split(sep).join('/')
+          files.push(fileName)
+          hash.update(fileName).update(readFileSync(abs))
+        }
+        files.sort()
+        const precache = [base, ...files.map((f) => `${base}${f}`)]
+        const template = readFileSync(new URL('./src/pwa/sw.template.js', import.meta.url), 'utf8')
+        const source = template
+          .replace('__SW_VERSION__', JSON.stringify(hash.digest('hex').slice(0, 12)))
+          .replace('__SW_PRECACHE__', JSON.stringify(precache, null, 2))
+          .replace('__SW_BASE__', JSON.stringify(base))
+        this.emitFile({ type: 'asset', fileName: 'sw.js', source })
+      },
+    },
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), serviceWorker()],
   server: { headers: isolationHeaders },
   preview: { headers: isolationHeaders },
   // marinear-engine Worker 는 ES module 로 번들한다

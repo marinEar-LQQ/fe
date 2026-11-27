@@ -74,6 +74,43 @@ VITE_ENGINE=mock npm run dev          # PowerShell: $env:VITE_ENGINE='mock'; npm
 
 모델 없이 화면 흐름만 볼 때는 `VITE_ENGINE=mock` 으로 같은 순서를 확인할 수 있다(Mock ASR 은 파일 내용과 무관하게 시나리오 문장을 순서대로 돌려준다).
 
+## 오프라인 (PWA)
+
+| 무엇 | 누가 저장 | 어디 |
+| --- | --- | --- |
+| 앱 화면(HTML·JS·CSS·엔진 Worker·worklet·manifest) | 프론트 Service Worker | Cache Storage `marinear-shell-<버전>` |
+| 모델·ONNX Runtime(WASM) | 엔진(transformers.js) | Cache Storage (transformers 캐시) — 프론트는 건드리지 않음 |
+| 작업·발화·결과·검토·메모·음성 | 엔진 | IndexedDB `marinear` (Mock: `marinear-mock`) |
+
+- `dist/sw.js` 는 빌드 때 `vite.config.ts` 의 `marinear-sw` 플러그인이 `src/pwa/sw.template.js` 로 만든다. 해시된 JS/CSS·엔진 Worker 청크·`index.html`·public 파일을 미리 캐시하고, 빌드 내용이 바뀌면 캐시 버전이 바뀐다. `.wasm` 은 미리 받지 않는다(같은 출처 요청이 생기면 처음 쓸 때 캐시).
+- 새 버전은 진행 중 수신을 방해하지 않도록 자동 교체(skipWaiting)하지 않는다. 앱 탭을 모두 닫았다가 다시 열면 적용된다.
+- Service Worker 는 배포 빌드(`npm run build` → `npm run preview` 또는 배포 서버)에서만 등록된다. `npm run dev` 에서는 없다.
+- **오프라인 준비 완료** 표시는 엔진의 `readiness.offlineReady` 만 따른다. 설정 › 앱 설치의 “앱 화면 캐시”는 화면을 다시 여는 데 필요한 것일 뿐 분석 가능 여부가 아니다.
+
+### 인터넷 끊고 확인하는 방법 (오프라인 재시작)
+
+준비 (온라인):
+- [ ] `npm run build && npm run preview` (또는 HTTPS 배포 주소). 응답 헤더에 `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp` 가 있는지 개발자도구 Network 에서 확인
+- [ ] 설정 › 분석 엔진 › **모델 다운로드** → 음성인식·번역 모델이 “준비됨 / 자체 검사 통과”
+- [ ] 쓸 번역 언어가 “사용 가능”
+- [ ] 분석 엔진 카드에 **오프라인 준비 완료** 배지
+- [ ] 설정 › 앱 설치에 “앱 화면 캐시: 버전 … · 파일 N개 저장됨”
+- [ ] 오늘 작업 등록, (선택) 저장 공간 › 영구 보존 요청
+
+끊고 확인 (기기 Wi-Fi·데이터 끄기, PC 는 개발자도구 Network › Offline):
+- [ ] 앱 탭을 완전히 닫고 다시 연다 → 화면이 열리고 상단에 등록한 작업 기준이 그대로 보인다
+- [ ] 교신·재확인·작업 일지·오늘 작업·설정을 오가도 빈 화면이나 “분석 엔진 준비 중…” 에서 멈추지 않는다
+- [ ] 설정 › 분석 엔진이 다시 **분석 가능 / 오프라인 준비 완료** (재시작 때 캐시에서 모델을 다시 불러온다. 시간이 조금 걸릴 수 있음)
+- [ ] 교신 › 파일 분석으로 `radio-case-a.wav` 분석 → r1 → r2 결과가 나온다
+- [ ] 선택 언어 번역이 나온다 (미설치 언어는 “번역 자원 미설치” 안내만 나오고 몰래 온라인 번역하지 않는다)
+- [ ] 수신 시작 → 입력 레벨과 “엔진 수신 중” 표시, 발화가 분석된다
+- [ ] 이전 교신 기록·메모·기준 변경 이력이 작업 일지에 남아 있고 TXT/JSON 내보내기가 된다
+- [ ] 개발자도구 Console 에 huggingface.co / cdn.jsdelivr.net 요청 실패가 **분석 실패로 이어지지 않는다**
+
+실패하면: 분석 엔진 카드의 모델 상태·오류 문구와 Console 오류(특히 ONNX Runtime WASM 요청)를 백엔드에 전달한다.
+
+> 확인된 범위 (2026-11-27, headless Chrome + `vite preview`): SW 제어 상태에서 네트워크를 끊고 `/settings` `/monitor` `/report` 재진입, `crossOriginIsolated` 유지, 엔진 Worker 기동까지 확인. 모델 설치 후 오프라인 분석은 이 환경에서 Hugging Face 접속이 막혀 확인하지 못했다.
+
 ## 화면
 
 | 메뉴 | 경로 | 기능 |
@@ -92,6 +129,7 @@ src/features/       task / radio / review / report / settings(EnginePanel)
 src/engine/         엔진 주입(index), 시연 제어(demo), 확장 기능 가드(extensions), 작업 복원, 일지 타임라인
 src/contracts/      화면용 라벨·언어 목록·카탈로그 헬퍼 (타입 원본은 marinear-engine)
 src/audio/          getUserMedia + AudioWorklet 캡처 (public/worklets)
+src/pwa/            Service Worker 템플릿 (빌드 때 dist/sw.js 생성)
 src/ui/             재디자인 가능한 표시 부품 + 디자인 토큰(tokens.css)
 ```
 

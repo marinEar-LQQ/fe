@@ -9,7 +9,7 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// PWA: 앱 shell 캐시용 Service Worker (모델 캐시는 엔진 연결 단계에서 추가)
+// PWA: 앱 shell 캐시용 Service Worker (빌드 때 vite.config.ts 가 dist/sw.js 를 생성). 모델 캐시는 엔진이 관리한다.
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {

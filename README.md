@@ -1,6 +1,7 @@
-# marinEar 디자인 목업 시안 A (해도)
+# marinEar · Frontend
 
-정적 HTML 목업이다. 앱 코드가 아니라 화면 디자인 기준으로만 쓴다. 화면 크기는 390 x 844.
+조타실 휴대폰·태블릿에서 쓰는 PWA. 들어온 VHF 교신의 핵심 정보(선박·터미널·선석)를 **내 작업 기록과 비교**하고, 원음/완화음 인식 차이·번역·작업 일지를 보여준다.
+기준 문서: 프론트엔드 / 백엔드 / 통합 기술설명서 v1.0 (2026.11.27)
 
 분석 엔진은 백엔드 패키지 [`marinear-engine`](https://github.com/marinEar-LQQ/backend) (`github:marinEar-LQQ/backend`)를 쓴다. 상시 서버 없이 브라우저 Web Worker 안에서 모델이 돈다.
 

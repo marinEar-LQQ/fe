@@ -2,6 +2,8 @@ import type { AnalysisResult } from 'marinear-engine'
 import { Fragment, useState, type ReactNode } from 'react'
 import { diffCount, formatAlternatives, rawTokens, transcriptTokens } from '../../engine/transcript'
 import { useT } from '../../i18n'
+import { IconPlay } from '../../ui/components'
+import { useClipPlayer, type ClipRange } from './useClipPlayer'
 
 const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -28,16 +30,44 @@ function withHighlights(text: string, terms: string[]): ReactNode {
  */
 export function TranscriptView({ result, highlight = [] }: { result: AnalysisResult; highlight?: string[] }) {
   const t = useT()
+  const player = useClipPlayer()
   const [open, setOpen] = useState<number | null>(null)
   const tokens = transcriptTokens(result)
+  // 단어 시각 정보가 없으므로 글자 위치 비율로 구간을 어림한다 (재생 때 앞뒤 여유를 둔다)
+  const lens = tokens.map((tok) => (tok.kind === 'text' ? tok.text : tok.kind === 'diff' ? (tok.enhanced ?? tok.raw ?? '') : tok.text.replace(/[[\]?]/g, '').split(' / ')[0]!).length)
+  const total = Math.max(1, lens.reduce((a, b) => a + b, 0))
+  const rangeOf = (i: number): ClipRange => {
+    const before = lens.slice(0, i).reduce((a, b) => a + b, 0)
+    return { from: before / total, to: (before + lens[i]!) / total }
+  }
+  /** 그 단어 구간의 원음만 듣기 */
+  const partButton = (i: number) => {
+    const key = `${result.utteranceId}#${i}`
+    return (
+      <>
+        <button type="button" className="btn sm part-play" onClick={() => void (player.playing === key ? player.stop() : player.play(result.utteranceId, 'raw', { key, range: rangeOf(i) }))}>
+          <IconPlay />
+          {player.playing === key ? '■' : t.transcript.playPart}
+        </button>
+        {player.msgFor(key) && <span className="small muted"> {player.msgFor(key)}</span>}
+      </>
+    )
+  }
   return (
     <>
       {tokens.map((tok, i) => {
         if (tok.kind === 'text') return <Fragment key={i}>{withHighlights(tok.text, highlight)}</Fragment>
         if (tok.kind === 'uncertain')
           return (
-            <span key={i} className="uncertain" title={t.transcript.candidateTitle(t.fields[tok.field])}>
-              {tok.text}
+            <span key={i} className="diff-word-wrap">
+              <button type="button" className="uncertain uncertain-btn" title={t.transcript.candidateTitle(t.fields[tok.field])} aria-expanded={open === i} onClick={() => setOpen(open === i ? null : i)}>
+                {tok.text}
+              </button>
+              {open === i && (
+                <span className="diff-pop" role="note">
+                  {partButton(i)}
+                </span>
+              )}
             </span>
           )
         const rawText = tok.raw ?? t.transcript.notInRaw
@@ -59,7 +89,7 @@ export function TranscriptView({ result, highlight = [] }: { result: AnalysisRes
             </button>
             {open === i && (
               <span className="diff-pop" role="note">
-                {t.transcript.raw}: {rawText}
+                {t.transcript.raw}: {rawText} {partButton(i)}
               </span>
             )}
           </span>

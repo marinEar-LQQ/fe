@@ -190,6 +190,10 @@ export const vi: Messages = {
     identifier: 'Mã nhận dạng',
   },
   start: {
+    home: 'Về màn hình bắt đầu',
+    resume: 'Tiếp tục',
+    fresh: 'Bắt đầu công việc mới',
+    current: (v: string) => `Công việc đang làm: ${v}`,
     choose: 'Chọn ngôn ngữ của bạn',
     start: 'Bắt đầu',
   },
@@ -209,6 +213,7 @@ export const vi: Messages = {
     notInRaw: '(không có trong âm thanh gốc)',
     missingWord: '[thiếu từ]',
     checkTag: 'kiểm tra',
+    playPart: 'Nghe đoạn này (gốc)',
     diffAria: (shown, raw) => `${shown} — nghe khác trong âm thanh gốc, cần kiểm tra. Gốc: ${raw}`,
     diffCount: (n) => `${n} từ nghe khác · cần kiểm tra`,
     candidateTitle: (field) => `Các khả năng về ${field} — chưa xác định`,

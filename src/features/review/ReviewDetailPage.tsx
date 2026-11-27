@@ -1,5 +1,5 @@
 import type { AnalysisResult, AudioClip, AudioVariant, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { useReviewQueue } from '../../app/useReviewQueue'
@@ -10,6 +10,7 @@ import { correctionInfo } from '../../engine/report'
 import { formatAlternatives, headline } from '../../engine/transcript'
 import { useT } from '../../i18n'
 import { DemoBadge, EmptyState, IconCheck, IconPlay, KIND_MARK, Notice, PageHead, ReviewBadge, StatusLabel } from '../../ui/components'
+import { claimPlayback, releasePlayback } from '../../audio/exclusive'
 import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
 import { EntityChips, ResultFlags } from '../radio/UtteranceCard'
 import { useUtterance } from './useUtterance'
@@ -22,6 +23,9 @@ function AudioButton({ utteranceId, variant, label }: { utteranceId: string; var
   const [url, setUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const audioRef = useRef<HTMLAudioElement>(null)
+  // 한 번에 하나만 재생: 이 재생기가 시작되면 다른 재생기를 멈추고, 다른 곳이 시작하면 이쪽이 멈춘다
+  const pauseSelf = useCallback(() => audioRef.current?.pause(), [])
+  useEffect(() => () => releasePlayback(pauseSelf), [pauseSelf])
 
   useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
 
@@ -50,7 +54,7 @@ function AudioButton({ utteranceId, variant, label }: { utteranceId: string; var
         <IconPlay />
         {label}
       </button>
-      {url && <audio ref={audioRef} src={url} controls style={{ width: '100%' }} />}
+      {url && <audio ref={audioRef} src={url} controls onPlay={() => claimPlayback(pauseSelf)} style={{ width: '100%' }} />}
       {msg && <span className="small muted">{msg}</span>}
     </div>
   )

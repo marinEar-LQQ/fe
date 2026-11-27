@@ -190,6 +190,10 @@ export const id: Messages = {
     identifier: 'ID',
   },
   start: {
+    home: 'Kembali ke awal',
+    resume: 'Lanjutkan',
+    fresh: 'Mulai tugas baru',
+    current: (v: string) => `Tugas berjalan: ${v}`,
     choose: 'Pilih bahasa Anda',
     start: 'Mulai',
   },
@@ -209,6 +213,7 @@ export const id: Messages = {
     notInRaw: '(tidak ada di suara asli)',
     missingWord: '[kata hilang]',
     checkTag: 'periksa',
+    playPart: 'Putar bagian ini (asli)',
     diffAria: (shown, raw) => `${shown} — terdengar berbeda di suara asli, perlu diperiksa. Asli: ${raw}`,
     diffCount: (n) => `${n} kata terdengar berbeda · perlu diperiksa`,
     candidateTitle: (field) => `Kandidat ${field} — belum pasti`,

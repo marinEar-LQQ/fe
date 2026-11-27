@@ -1,6 +1,6 @@
 import type { TaskDraft, TaskVersion } from 'marinear-engine'
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { describeError, isStale } from '../../app/errors'
 import { CATALOG, findTerminal, validateDraft } from '../../contracts/catalog'
@@ -23,7 +23,9 @@ export function TaskPage() {
   const [saveError, setSaveError] = useState<string | null>(null)
   const [history, setHistory] = useState<TaskVersion[]>([])
   /** 새 작업 등록 모드: 지금 작업을 고치는 게 아니라 새 작업(새 일지)을 만든다. 이전 작업은 '지난 작업 일지'에 남는다 */
-  const [fresh, setFresh] = useState(false)
+  // 시작 화면의 "새 작업 시작"으로 들어오면 처음부터 새 작업 모드
+  const location = useLocation()
+  const [fresh, setFresh] = useState(() => (location.state as { fresh?: boolean } | null)?.fresh === true)
 
   // 현재 기준을 폼 초기값으로 (새 작업 모드면 빈 폼)
   useEffect(() => {

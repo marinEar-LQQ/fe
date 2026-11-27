@@ -6,7 +6,9 @@ import { useT } from '../../i18n'
 import { CompassLogo, IconChevronDown } from '../../ui/components'
 
 /**
- * 00 시작 언어 선택 — 첫 실행에만. 고르는 즉시 화면 언어가 바뀌고,
+ * 00 시작 언어 선택 — 첫 실행, 그리고 왼쪽 위 로고를 누르면 언제든 돌아온다.
+ * 작업이 이미 있으면 "이어서 하기"와 "새 작업 시작"(이전 작업은 지난 작업 일지에 남음)을 고른다.
+ * 고르는 즉시 화면 언어가 바뀌고,
  * 시작을 누르면 작업 등록(작업 없음) 또는 교신(작업 있음)으로 간다. 설정에서 언제든 바꿀 수 있다.
  */
 export function StartPage() {
@@ -14,6 +16,11 @@ export function StartPage() {
   const t = useT()
   const navigate = useNavigate()
   const lang = state.preferences.targetLang
+  const active = state.taskState.active
+  const go = (to: string, fresh = false) => {
+    dispatch({ type: 'set-pref', prefs: { langChosen: true } })
+    navigate(to, { replace: true, state: fresh ? { fresh: true } : undefined })
+  }
 
   return (
     <div className="start-screen">
@@ -37,16 +44,15 @@ export function StartPage() {
         </span>
       </div>
       <div className="start-foot">
-        <button
-          type="button"
-          className="btn primary lg block"
-          onClick={() => {
-            dispatch({ type: 'set-pref', prefs: { langChosen: true } })
-            navigate(state.taskState.active ? '/monitor' : '/task', { replace: true })
-          }}
-        >
-          {t.start.start}
+        {active && <p className="small muted start-current">{t.start.current(active.ownVessel)}</p>}
+        <button type="button" className="btn primary lg block" onClick={() => go(active ? '/monitor' : '/task')}>
+          {active ? t.start.resume : t.start.start}
         </button>
+        {active && (
+          <button type="button" className="btn lg block" onClick={() => go('/task', true)}>
+            {t.start.fresh}
+          </button>
+        )}
       </div>
     </div>
   )

@@ -22,7 +22,7 @@ function TopBar() {
   const liveGaps = live ? state.gaps.filter((g) => g.sessionId === state.session.sessionId).length : 0
   return (
     <header className="topbar">
-      <Link to="/monitor" className="brand" aria-label="marinEar">
+      <Link to="/start" className="brand" aria-label={t.start.home}>
         <CompassLogo />
         <span className="brand-name">marinEar</span>
       </Link>

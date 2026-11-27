@@ -190,6 +190,10 @@ export const en: Messages = {
     identifier: 'ID',
   },
   start: {
+    home: 'Back to start',
+    resume: 'Continue',
+    fresh: 'Start a new task',
+    current: (v: string) => `Task in progress: ${v}`,
     choose: 'Choose your language',
     start: 'Start',
   },
@@ -209,6 +213,7 @@ export const en: Messages = {
     notInRaw: '(not in raw audio)',
     missingWord: '[missing word]',
     checkTag: 'check',
+    playPart: 'Play this part (raw)',
     diffAria: (shown, raw) => `${shown} — heard differently in raw audio, check needed. Raw: ${raw}`,
     diffCount: (n) => `${n} word${n === 1 ? '' : 's'} heard differently · check needed`,
     candidateTitle: (field) => `${field} candidates — not confirmed`,

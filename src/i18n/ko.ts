@@ -194,6 +194,10 @@ export const ko = {
     identifier: '식별',
   },
   start: {
+    home: '시작 화면으로',
+    resume: '이어서 하기',
+    fresh: '새 작업 시작',
+    current: (v: string) => `진행 중인 작업: ${v}`,
     choose: '언어를 선택하세요',
     start: '시작',
   },
@@ -213,6 +217,7 @@ export const ko = {
     notInRaw: '(원음에는 없음)',
     missingWord: '[빠진 단어]',
     checkTag: '확인',
+    playPart: '이 부분 원음 듣기',
     diffAria: (shown: string, raw: string) => `${shown} — 원음과 다르게 들림, 확인 필요. 원음: ${raw}`,
     diffCount: (n: number) => `원음과 다르게 들린 단어 ${n}곳 · 확인 필요`,
     candidateTitle: (field: string) => `${field} 후보 — 확정값이 아닙니다`,

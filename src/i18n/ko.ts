@@ -488,6 +488,7 @@ export const ko = {
     saveFailed: (m: string) => `작업 로그 저장 실패: ${m}`,
     snapshot: (u: number, c: number, n: number) => `작업 로그 저장 · 교신 ${u}건 · 확인 ${c}건 · 미확인 ${n}건`,
     listenRaw: '원음 듣기',
+    savedNext: '저장 완료 · 교신으로 돌아가기',
     pastTitle: '지난 작업 일지',
     pastEmpty: '지난 작업 일지가 없습니다. 새 작업을 등록하면 이전 작업이 여기에 남습니다.',
     pastCalls: (n: number) => `교신 ${n}건`,
@@ -586,6 +587,8 @@ export const ko = {
     allDone: '모든 교신을 확인했습니다. 교신 화면으로 돌아갑니다…',
     next: '다음 건',
     backToMonitor: '교신으로 돌아가기',
+    registered: (v: number) => `v${v} 등록됨`,
+    justChanged: '방금 변경',
   },
 }
 

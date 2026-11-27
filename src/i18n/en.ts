@@ -484,6 +484,7 @@ export const en: Messages = {
     saveFailed: (m: string) => `Could not save the work log: ${m}`,
     snapshot: (u: number, c: number, n: number) => `Work log saved · ${u} calls · ${c} checked · ${n} unchecked`,
     listenRaw: 'Play raw audio',
+    savedNext: 'Saved · Back to radio calls',
     pastTitle: 'Past work logs',
     pastEmpty: 'No past work logs yet. Earlier tasks stay here after you register a new one.',
     pastCalls: (n: number) => `${n} call${n === 1 ? '' : 's'}`,
@@ -582,5 +583,7 @@ export const en: Messages = {
     allDone: 'All calls checked. Returning to radio calls…',
     next: 'Next',
     backToMonitor: 'Back to radio calls',
+    registered: (v: number) => `v${v} saved`,
+    justChanged: 'Just changed',
   },
 }

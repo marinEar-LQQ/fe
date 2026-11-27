@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { describeError } from '../../app/errors'
+import { useReviewQueue } from '../../app/useReviewQueue'
 import { formatClock, formatDate } from '../../contracts/labels'
 import { buildTimeline, displayTranscript, reportStats, type TimelineItem } from '../../engine/report'
 import { headline } from '../../engine/transcript'
@@ -30,7 +31,7 @@ function TimelineCard({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote
         <div className="t-foot">
           <span className="status-strip">
             {result ? (
-              <Link to={`/reviews/${id}`}>
+              <Link to={`/reviews/${id}`} state={{ from: '/report' }}>
                 <StatusLabel tone={mark.tone}>{headline(result, t)}</StatusLabel>
               </Link>
             ) : (
@@ -56,7 +57,7 @@ function TimelineCard({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote
         <div className="t-foot">
           <StatusLabel tone="plain">{v.sourceReviewEventId ? t.task.fromReview : t.task.manual}</StatusLabel>
           <span className="small muted">
-            {v.ownVessel} → {v.targetVessel}
+            {v.ownVessel === v.targetVessel ? v.targetVessel : `${v.ownVessel} → ${v.targetVessel}`}
           </span>
         </div>
       </li>
@@ -74,7 +75,7 @@ function TimelineCard({ item, onDeleteNote }: { item: TimelineItem; onDeleteNote
           {t.report.userCheck} · {label}
         </p>
         <div className="t-foot">
-          <Link to={`/reviews/${e.utteranceId}`}>
+          <Link to={`/reviews/${e.utteranceId}`} state={{ from: '/report' }}>
             <StatusLabel tone={e.action === 'apply' ? 'ok' : 'plain'}>{e.action === 'apply' ? t.report.versionChange(e.taskVersionBefore, e.taskVersionAfter) : t.reviewDetail.noChange}</StatusLabel>
           </Link>
         </div>
@@ -131,7 +132,7 @@ function PastLogs({ shownId, activeId }: { shownId: string | null; activeId: str
 
   const others = (rows ?? []).filter((r) => r.log.task.taskId !== shownId)
   return (
-    <section className="no-print" aria-label={t.report.pastTitle} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+    <section id="past-logs" className="no-print" aria-label={t.report.pastTitle} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
       <h2>{t.report.pastTitle}</h2>
       {rows === null ? (
         <p className="small muted">{t.common.loading}</p>
@@ -165,6 +166,7 @@ export function ReportPage() {
   const { state, engine } = useApp()
   const t = useT()
   const [params] = useSearchParams()
+  const queue = useReviewQueue()
   const active = state.taskState.active
   const viewId = params.get('task')
   const viewingPast = viewId !== null && viewId !== active?.taskId
@@ -173,6 +175,8 @@ export function ReportPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [memo, setMemo] = useState('')
   const [msg, setMsg] = useState<{ tone: 'info' | 'danger'; text: string } | null>(null)
+  /** 방금 작업 로그를 저장했는지 — 저장 후 "교신으로 돌아가기"를 주 버튼으로 보여 준다 */
+  const [justSaved, setJustSaved] = useState(false)
 
   const reload = useCallback(async () => {
     if (!shownId) return
@@ -252,8 +256,11 @@ export function ReportPage() {
   async function saveWorkLog() {
     if (!task || !(await saveMemo())) return
     try {
+      // 요약 기록은 마지막 하나만 남긴다 (누를 때마다 쌓이지 않게 — 이전 요약은 삭제 표시)
+      for (const n of log?.notes ?? []) if (!n.deleted && SNAPSHOT_PREFIX.test(n.text)) await engine.saveNote(task.taskId, '', n.noteId)
       await engine.saveNote(task.taskId, t.report.snapshot(stats.utterances, stats.userChecks, stats.unchecked))
       setMsg({ tone: 'info', text: t.report.savedToApp })
+      setJustSaved(true)
       await reload()
     } catch (e) {
       setMsg({ tone: 'danger', text: t.report.saveFailed(describeError(e).message) })
@@ -282,7 +289,7 @@ export function ReportPage() {
           <span className="chip">{formatDate(firstVersion?.createdAt ?? log.task.createdAt)}</span>
         </div>
         <span className="mono small" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <span>{task.ownVessel}</span>
+          {task.ownVessel !== task.targetVessel && <span>{task.ownVessel}</span>}
           <b>{placeText(task.terminalId, task.berthId)}</b>
           <span className="muted">v{log.task.activeVersion}</span>
         </span>
@@ -302,7 +309,21 @@ export function ReportPage() {
           <b>{stats.unchecked}</b>
         </div>
       </div>
+      {/* 확인 안 한 교신이 남아 있으면 여기서 바로 재확인 시작 — 다 끝나면 일지로 돌아온다 */}
+      {!viewingPast && queue.pendingIds.length > 0 && (
+        <Link to={`/reviews/${queue.pendingIds[0]}`} state={{ from: '/report' }} className="card alert flow-band no-print" aria-label={t.flow.startReview}>
+          <StatusMark className="mark" shape="triangle" />
+          <span className="grow">
+            <b>{t.flow.pendingBand(queue.pendingIds.length)}</b>
+          </span>
+          <span className="btn sm alert">{t.flow.startReview} →</span>
+        </Link>
+      )}
       {fixtureCount > 0 && <p className="small muted">{t.report.fixtureNote(stats.utterances, fixtureCount)}</p>}
+      <button type="button" className="link-row no-print" onClick={() => document.getElementById('past-logs')?.scrollIntoView({ behavior: 'smooth' })}>
+        {t.report.pastTitle}
+        <span aria-hidden="true">↓</span>
+      </button>
 
       <h2>{t.report.timeline}</h2>
       {timeline.length === 0 ? (
@@ -310,7 +331,7 @@ export function ReportPage() {
       ) : (
         <div className="timeline-rail">
           <ol className="timeline">
-            {timeline.map((item, i) => (
+            {/* 사용자 확인 기록은 해당 교신 카드의 상태(확인함·반영함)로 보이므로 따로 한 줄씩 늘어놓지 않는다 */ timeline.filter((x) => x.kind !== 'review').map((item, i) => (
               <TimelineCard key={i} item={item} onDeleteNote={viewingPast ? undefined : (id) => void removeMemo(id)} />
             ))}
           </ol>
@@ -327,6 +348,14 @@ export function ReportPage() {
         </section>
       )}
       {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
+      {justSaved && !viewingPast && (
+        <Link to="/monitor" className="btn primary lg block no-print saved-next">
+          <span className="saved-check" aria-hidden="true">
+            ✓
+          </span>
+          {t.report.savedNext}
+        </Link>
+      )}
       <div className="btn-grid no-print">
         {!viewingPast && (
           <button type="button" className="btn primary md" onClick={() => void saveWorkLog()}>

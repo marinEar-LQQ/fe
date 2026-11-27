@@ -78,7 +78,7 @@ export function TaskPage() {
       } else {
         await saveTask(draft)
       }
-      navigate('/monitor')
+      navigate('/monitor', { state: { flash: 'registered' } })
     } catch (e) {
       const { code, message } = describeError(e)
       // VERSION_CONFLICT: 자동 재시도하지 않는다. 최신 기준이 폼에 다시 채워진다.

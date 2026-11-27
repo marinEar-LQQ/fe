@@ -484,6 +484,7 @@ export const vi: Messages = {
     saveFailed: (m: string) => `Không lưu được nhật ký công việc: ${m}`,
     snapshot: (u: number, c: number, n: number) => `Đã lưu nhật ký · ${u} cuộc gọi · ${c} đã kiểm tra · ${n} chưa kiểm tra`,
     listenRaw: 'Nghe âm thanh gốc',
+    savedNext: 'Đã lưu · Quay lại cuộc gọi',
     pastTitle: 'Nhật ký công việc trước đây',
     pastEmpty: 'Chưa có nhật ký trước đây. Công việc cũ sẽ nằm ở đây sau khi bạn đăng ký công việc mới.',
     pastCalls: (n: number) => `${n} cuộc gọi`,
@@ -582,5 +583,7 @@ export const vi: Messages = {
     allDone: 'Đã kiểm tra hết. Quay lại màn hình cuộc gọi…',
     next: 'Tiếp theo',
     backToMonitor: 'Quay lại cuộc gọi',
+    registered: (v: number) => `Đã lưu v${v}`,
+    justChanged: 'Vừa thay đổi',
   },
 }

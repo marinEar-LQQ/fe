@@ -1,5 +1,5 @@
 import type { AnalysisResult, ReviewState } from 'marinear-engine'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { translationKey, type MessageEntry } from '../../app/state'
 import { formatClock, needsReview } from '../../contracts/labels'
@@ -64,6 +64,7 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
   const { state } = useApp()
   const t = useT()
   const player = useClipPlayer()
+  const { pathname } = useLocation()
   const { utterance, result, partialText, stage } = entry
   const lang = state.preferences.targetLang
   const review = state.reviewState[utterance.utteranceId] ?? storedReview ?? 'unreviewed'
@@ -137,7 +138,7 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
             <IconPlay />
             {player.playing === utterance.utteranceId ? '■' : t.report.listenRaw}
           </button>
-          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`}>
+          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
             {t.card.recheck}
           </Link>
         </div>
@@ -149,13 +150,13 @@ export function UtteranceCard({ entry, review: storedReview }: { entry: MessageE
             <IconPlay />
             {player.playing === utterance.utteranceId ? '■' : t.report.listenRaw}
           </button>
-          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`}>
+          <Link className="btn sm alert" to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
             {t.card.compare}
           </Link>
         </div>
       )}
       {kind === 'unknown' && (
-        <Link className="link-row" to={`/reviews/${utterance.utteranceId}`}>
+        <Link className="link-row" to={`/reviews/${utterance.utteranceId}`} state={{ from: pathname }}>
           {t.card.details}
           <span aria-hidden="true">→</span>
         </Link>

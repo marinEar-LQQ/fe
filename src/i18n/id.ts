@@ -484,6 +484,7 @@ export const id: Messages = {
     saveFailed: (m: string) => `Gagal menyimpan log kerja: ${m}`,
     snapshot: (u: number, c: number, n: number) => `Log kerja disimpan · ${u} panggilan · ${c} dicek · ${n} belum dicek`,
     listenRaw: 'Putar suara asli',
+    savedNext: 'Tersimpan · Kembali ke panggilan radio',
     pastTitle: 'Log kerja sebelumnya',
     pastEmpty: 'Belum ada log kerja sebelumnya. Tugas lama tetap ada di sini setelah Anda mendaftarkan tugas baru.',
     pastCalls: (n: number) => `${n} panggilan`,
@@ -582,5 +583,7 @@ export const id: Messages = {
     allDone: 'Semua panggilan sudah dicek. Kembali ke panggilan radio…',
     next: 'Berikutnya',
     backToMonitor: 'Kembali ke panggilan radio',
+    registered: (v: number) => `v${v} tersimpan`,
+    justChanged: 'Baru diubah',
   },
 }

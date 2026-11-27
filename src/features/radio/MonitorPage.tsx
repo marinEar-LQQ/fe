@@ -1,6 +1,6 @@
 import type { LangCode, TaskVersion } from 'marinear-engine'
 import { useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { buildFeed, engineStatus, type Filter, type GapEntry } from '../../app/state'
 import { useReviewQueue } from '../../app/useReviewQueue'
@@ -20,7 +20,8 @@ export function placeText(terminalId: string | null, berthId: string | null): st
 }
 
 /** 02 "현재 작업 기준" 칸 (등고선 장식). 부두 설명은 카탈로그에 없어 표시하지 않는다 */
-export function TaskRef({ task }: { task: TaskVersion }) {
+/** flash: 방금 등록(2초 뒤 사라짐) / 방금 변경(다른 화면으로 갈 때까지 유지) 표시 */
+export function TaskRef({ task, flash }: { task: TaskVersion; flash?: 'registered' | 'changed' }) {
   const t = useT()
   return (
     <Link to="/task" className="card task-ref" aria-label={t.monitor.taskRef}>
@@ -29,6 +30,11 @@ export function TaskRef({ task }: { task: TaskVersion }) {
       <span className="sub">
         <span style={{ fontWeight: 600 }}>{task.targetVessel}</span>
         <span className="chip">v{task.version}</span>
+        {flash && (
+          <span className={`badge ok task-flash ${flash}`} role="status">
+            {flash === 'registered' ? t.flow.registered(task.version) : t.flow.justChanged}
+          </span>
+        )}
       </span>
     </Link>
   )
@@ -85,6 +91,7 @@ export function MonitorPage() {
   }).length
   const pending = Math.max(livePending, state.pendingReviews)
   const queue = useReviewQueue()
+  const flash = (useLocation().state as { flash?: 'registered' | 'changed' } | null)?.flash
   const wakeText ={ active: t.monitor.wake.active, unsupported: t.monitor.wake.unsupported, released: t.monitor.wake.released, failed: t.monitor.wake.failed, off: '' }[wakeLock]
 
   return (
@@ -121,7 +128,7 @@ export function MonitorPage() {
       <OnlineUnavailableNotice />
       {engineKind === 'online' && state.online.status === 'checking' && <p className="small muted">{t.online.checking}</p>}
 
-      {task && <TaskRef task={task} />}
+      {task && <TaskRef task={task} flash={flash} />}
 
       <div className="inline-field">
         <label htmlFor="monitor-lang">{t.monitor.translationLang}</label>
@@ -201,10 +208,12 @@ export function MonitorPage() {
 
       {/* 흐름: 분석 → "확인할 교신 N건" → 재확인(자동으로 다음 건) → 다 끝나면 "교신 기록 정리" → 일지 */}
       {task && queue.pendingIds.length > 0 ? (
-        <Link to={`/reviews/${queue.pendingIds[0]}`} className="card alert flow-band" aria-label={t.flow.startReview}>
+        <Link to={`/reviews/${queue.pendingIds[0]}`} state={{ from: '/monitor' }} className="card alert flow-band" aria-label={t.flow.startReview}>
           <StatusMark className="mark" shape="triangle" />
           <span className="grow">
-            <b>{t.flow.pendingBand(queue.pendingIds.length)}</b>
+            <b key={queue.pendingIds.length} className="count-pop" aria-live="polite">
+              {t.flow.pendingBand(queue.pendingIds.length)}
+            </b>
             <span className="small muted" style={{ display: 'block' }}>
               {t.flow.pendingHint}
             </span>

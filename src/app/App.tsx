@@ -1,4 +1,4 @@
-import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { BrowserRouter, Link, Navigate, NavLink, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { needsReview } from '../contracts/labels'
 import { MonitorPage } from '../features/radio/MonitorPage'
 import { ReportPage } from '../features/report/ReportPage'
@@ -64,7 +64,7 @@ function BottomNav() {
   return (
     <nav className="bottom-nav" aria-label={t.nav.label}>
       {items.map(({ to, label, Icon, badge }) => (
-        <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'active' : '')}>
+        <NavLink key={to} to={to} state={{ tab: true }} className={({ isActive }) => (isActive ? 'active' : '')}>
           <Icon />
           {label}
           {badge ? (
@@ -113,7 +113,12 @@ function Home() {
 
 function Shell() {
   const { state } = useApp()
-  const { pathname } = useLocation()
+  const location = useLocation()
+  const { pathname } = location
+  const navType = useNavigationType()
+  // 전환 효과: 하단 메뉴 이동은 즉시, 뒤로 가기는 왼쪽에서, 그 밖의 이동은 오른쪽에서 (CSS 에서 동작 줄이기 설정이면 끔)
+  const viaTab = (location.state as { tab?: boolean } | null)?.tab === true
+  const slide = viaTab ? '' : navType === 'POP' ? 'slide-back' : 'slide-fwd'
   // 첫 실행: 언어부터 고른다 (00 시작 언어 선택)
   if (!state.preferences.langChosen && pathname !== '/start') return <Navigate to="/start" replace />
   if (pathname === '/start') return <StartPage />
@@ -121,7 +126,7 @@ function Shell() {
   return (
     <div className="shell">
       <TopBar />
-      <main className={`page ${tightTop ? 'tight-top' : ''}`}>
+      <main key={location.key} className={`page ${tightTop ? 'tight-top' : ''} ${slide}`}>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/monitor" element={<MonitorPage />} />

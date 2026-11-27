@@ -1,6 +1,6 @@
 import type { AnalysisResult, AudioClip, AudioVariant, ReviewAction, ReviewState, TaskPatch } from 'marinear-engine'
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { useReviewQueue } from '../../app/useReviewQueue'
 import { describeError, isStale } from '../../app/errors'
@@ -108,7 +108,10 @@ function ReviewDetail() {
   const requestIdRef = useRef<{ key: string; id: string } | null>(null)
   const [confirmed, setConfirmed] = useState(false)
 
-  const back = { to: '/monitor', label: t.nav.monitor }
+  // 들어온 곳(교신 / 재확인 목록 / 일지)으로 돌아간다. 모르면 교신
+  const from = (useLocation().state as { from?: string } | null)?.from
+  const origin = from === '/report' || from === '/reviews' ? from : '/monitor'
+  const back = { to: origin, label: origin === '/report' ? t.nav.report : origin === '/reviews' ? t.nav.reviews : t.nav.monitor }
   if (loading && !entry) return <EmptyState title={t.common.loading} />
   if (loadError && !entry) return <Notice tone="danger">{t.reviewDetail.loadFailed(loadError)}</Notice>
   if (!entry || !entry.result)
@@ -199,7 +202,11 @@ function ReviewDetail() {
       // 흐름: 처리하면 다음 확인할 교신으로, 다 끝나면 교신 화면으로 (처리 결과 문구를 잠깐 보여 준 뒤)
       const next = queue.pendingIds.find((x) => x !== utterance.utteranceId)
       setAdvance(next ? t.flow.nextIn : t.flow.allDone)
-      window.setTimeout(() => navigate(next ? `/reviews/${next}` : '/monitor'), 1400)
+      // 다음 건으로 갈 때도 출처를 넘긴다. 반영(apply)하고 교신으로 돌아가면 기준 칸에 "방금 변경" 표시
+      window.setTimeout(
+        () => (next ? navigate(`/reviews/${next}`, { state: { from: origin } }) : navigate(origin, action === 'apply' && origin === '/monitor' ? { state: { flash: 'changed' } } : undefined)),
+        1400,
+      )
     } catch (e) {
       const { code, message } = describeError(e)
       // VERSION_CONFLICT / RESULT_STALE: 자동 재시도하지 않고 최신 기준·결과를 다시 불러와 보여준다
@@ -295,7 +302,7 @@ function ReviewDetail() {
               </div>
             </div>
             <div className="compare-foot small">
-              {snapshot ? `${snapshot.ownVessel} → ${snapshot.targetVessel}` : t.reviewDetail.noTaskAtTime} · {t.reviewDetail.vesselHeard(result.entities.vessel ?? t.common.unconfirmed)}
+              {snapshot ? (snapshot.ownVessel === snapshot.targetVessel ? snapshot.targetVessel : `${snapshot.ownVessel} → ${snapshot.targetVessel}`) : t.reviewDetail.noTaskAtTime} · {t.reviewDetail.vesselHeard(result.entities.vessel ?? t.common.unconfirmed)}
             </div>
           </section>
           {terminalDiffers && !berthDiffers && heard.berth && <p style={{ fontSize: 'var(--fs-btn)', fontWeight: 600 }}>{t.reviewDetail.sameBerthOtherTerminal}</p>}
@@ -358,39 +365,53 @@ function ReviewDetail() {
       {reasons.length > 0 && <p className="small muted">{t.comparisonHint[kind]} · {reasons.map((r) => formatReason(r, result, t)).join(' · ')}</p>}
 
       {/* 확인 행동 */}
-      <div className="no-print btn-stack">
+      {/* display: contents — 고정 막대가 이 묶음이 아니라 화면 전체(.page)를 기준으로 붙게 한다 */}
+      <div className="no-print" style={{ display: 'contents' }}>
         {error && <Notice tone="danger">{error}</Notice>}
         {done && (
           <Notice>
+            <span className="done-check" aria-hidden="true">
+              ✓
+            </span>{' '}
             {done}
             {advance && <div style={{ fontWeight: 600, marginTop: 4 }}>{advance}</div>}
           </Notice>
         )}
 
-        {clearDifference && !manual ? (
-          <>
-            <button type="button" className="btn md block" disabled={busy} onClick={() => void act('review')}>
-              {t.reviewDetail.reviewOnly}
-            </button>
-            {applyBlockers}
-            <p className="small">
-              {t.reviewDetail.applyTarget}{' '}
-              <b className="mono">
-                {terminalName(result.entities.terminalId)} {berthName(result.entities.terminalId, result.entities.berthId)}
-              </b>
-            </p>
-            {confirmBox}
-            {applyButton('primary')}
-          </>
-        ) : (
-          <button type="button" className="btn primary lg block" disabled={busy} onClick={() => void act('review')}>
-            <IconCheck />
-            {t.reviewDetail.reviewOnly}
-          </button>
-        )}
-        <button type="button" className="btn text" disabled={busy} onClick={() => void act('dismiss')}>
-          {t.reviewDetail.dismiss}
-        </button>
+        {/* 주 행동은 화면 아래에 고정 (하단 메뉴 바로 위) — 긴 화면에서도 스크롤 없이 누를 수 있게 */}
+        <div className={`action-bar ${done ? 'is-done' : ''}`}>
+          {clearDifference && !manual ? (
+            <>
+              {applyBlockers}
+              <p className="small" style={{ margin: 0 }}>
+                {t.reviewDetail.applyTarget}{' '}
+                <b className="mono">
+                  {terminalName(result.entities.terminalId)} {berthName(result.entities.terminalId, result.entities.berthId)}
+                </b>
+              </p>
+              {confirmBox}
+              {applyButton('primary')}
+              <div className="btn-grid">
+                <button type="button" className="btn sm" disabled={busy} onClick={() => void act('review')}>
+                  {t.reviewDetail.reviewOnly}
+                </button>
+                <button type="button" className="btn sm" disabled={busy} onClick={() => void act('dismiss')}>
+                  {t.reviewDetail.dismiss}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button type="button" className="btn primary lg block" disabled={busy} onClick={() => void act('review')}>
+                <IconCheck />
+                {t.reviewDetail.reviewOnly}
+              </button>
+              <button type="button" className="btn sm block" disabled={busy} onClick={() => void act('dismiss')}>
+                {t.reviewDetail.dismiss}
+              </button>
+            </>
+          )}
+        </div>
 
         {kind !== 'unrelated' && !(clearDifference && !manual) && (
           <section className="card soft" aria-label={t.reviewDetail.manualTitle}>

@@ -1273,3 +1273,172 @@ progress::-moz-progress-bar {
 .past-log:hover {
   border-color: var(--ink);
 }
+
+/* ───────── 재확인: 주 행동 하단 고정 ───────── */
+.action-bar {
+  position: sticky;
+  bottom: calc(var(--nav-h) + var(--safe-bottom));
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 -16px;
+  padding: 10px 16px 12px;
+  background: var(--surface);
+  border-top: var(--line-strong);
+  box-shadow: 0 -6px 14px rgb(11 42 66 / 0.08);
+}
+.action-bar.is-done {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ───────── 검수 반영: 읽기 쉬운 자막 ───────── */
+/* 단어마다 붙던 "확인" 딱지는 화면에서 숨기고(낭독기에는 남김) 밑줄·배경으로만 표시 — 문장이 끊기지 않게 */
+.diff-tag {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.diff-word {
+  border-bottom-width: 2px;
+  font-weight: 600;
+}
+:root {
+  --fs-mono-xs: 12px; /* 11px → 12px: 밝은 조타실에서 읽기 어려움 */
+}
+button.link-row {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--divider);
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* ───────── 효과 (모두 transform/opacity 만, 동작 줄이기 설정이면 끔) ───────── */
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes attention-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(163 25 91 / 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 10px rgb(163 25 91 / 0);
+  }
+}
+@keyframes pop {
+  0% {
+    transform: scale(0.9);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.page.slide-fwd {
+  animation: slide-in-right 150ms ease-out;
+}
+.page.slide-back {
+  animation: slide-in-left 150ms ease-out;
+}
+/* 새 교신 카드: 살짝 올라오며 등장, 확인이 필요한 카드는 테두리가 한 번 퍼진다 */
+.timeline-rail > .utt {
+  animation: card-in 220ms ease-out;
+}
+.timeline-rail > .utt:not(.soft) {
+  animation:
+    card-in 220ms ease-out,
+    attention-ring 900ms ease-out 200ms;
+}
+/* 띠: 등장 + 숫자 바뀔 때 튐 */
+.flow-band {
+  animation: card-in 220ms ease-out;
+}
+.count-pop {
+  display: inline-block;
+  animation: pop 320ms ease-out;
+}
+/* 완료 체크 */
+.done-check,
+.saved-check {
+  display: inline-block;
+  font-weight: 700;
+  animation: pop 360ms ease-out;
+}
+.saved-next {
+  animation: card-in 220ms ease-out;
+}
+/* 누르는 느낌 */
+.btn {
+  transition:
+    transform 80ms ease-out,
+    background-color 120ms ease-out;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+@media (prefers-reduced-motion: reduce) {
+  .page.slide-fwd,
+  .page.slide-back,
+  .timeline-rail > .utt,
+  .timeline-rail > .utt:not(.soft),
+  .flow-band,
+  .count-pop,
+  .done-check,
+  .saved-check,
+  .saved-next {
+    animation: none;
+  }
+  .btn {
+    transition: none;
+  }
+}
+
+/* 기준 칸 강조: 방금 등록(2초 뒤 사라짐) · 방금 변경(유지) */
+@keyframes flash-out {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.task-flash {
+  animation: pop 320ms ease-out;
+}
+.task-flash.registered {
+  animation:
+    pop 320ms ease-out,
+    flash-out 2400ms ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-flash,
+  .task-flash.registered {
+    animation: none;
+  }
+}

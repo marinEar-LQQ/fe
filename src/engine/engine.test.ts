@@ -174,6 +174,26 @@ describe('MockEngineClient scenario → UI state', () => {
     expect(buildFeed(state, 'all').some((i) => i.kind === 'gap')).toBe(true)
   })
 
+  it('exports a task log as JSON and imports it into another device (fresh DB) for demo prep', async () => {
+    const a = await setup()
+    const task = await a.demo.ensureDemoTask()
+    await a.demo.playScenario(task.taskId)
+    const file = await a.engine.exportTaskLog(task.taskId, 'json')
+    const before = await a.engine.getTaskLog(task.taskId)
+
+    const b = await setup() // 다른 기기·브라우저
+    const imported = await b.engine.importTaskLog(file.content)
+    expect(imported.taskId).toBe(task.taskId)
+    const after = await b.engine.getTaskLog(imported.taskId)
+    expect(after.counts.utterances).toBe(before.counts.utterances)
+    expect(after.utterances.every((u) => u.results.at(-1)?.origin === 'fixture')).toBe(true) // origin 유지
+    expect((await restoreActiveTask(b.engine))?.taskId).toBe(task.taskId)
+    expect(b.events.some((e) => e.type === 'task.updated')).toBe(true)
+
+    await expectEngineError(b.engine.importTaskLog('{not json'), 'VALIDATION_FAILED')
+    await expectEngineError(b.engine.importTaskLog(JSON.stringify({ hello: 1 })), 'VALIDATION_FAILED')
+  })
+
   it('stores notes through engine.saveNote and hides deleted ones in the timeline', async () => {
     const { engine, demo } = await setup()
     const task = await demo.ensureDemoTask()

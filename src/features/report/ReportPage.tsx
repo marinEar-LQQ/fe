@@ -2,18 +2,12 @@ import type { ExportFormat, TaskLog } from 'marinear-engine'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
+import { download } from '../../app/download'
 import { describeError } from '../../app/errors'
 import { entryFromLog } from '../../app/state'
 import { formatClock } from '../../contracts/labels'
 import { buildTimeline } from '../../engine/report'
 import { Badge, Card, EmptyState, Notice } from '../../ui/components'
-
-function download(filename: string, mime: string, content: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }))
-  const a = Object.assign(document.createElement('a'), { href: url, download: filename })
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
 
 export function ReportPage() {
   const { state, engine } = useApp()

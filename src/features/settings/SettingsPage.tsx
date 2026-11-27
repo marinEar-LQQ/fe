@@ -3,6 +3,7 @@ import { useApp } from '../../app/AppContext'
 import { listAudioInputs } from '../../audio/capture'
 import { LANGS } from '../../contracts/lang'
 import { Card } from '../../ui/components'
+import { DemoPrepPanel } from './DemoPrepPanel'
 import { EnginePanel } from './EnginePanel'
 
 interface BeforeInstallPromptEvent extends Event {
@@ -73,6 +74,8 @@ export function SettingsPage() {
       </Card>
 
       <EnginePanel />
+
+      <DemoPrepPanel />
 
       <Card>
         <h2>번역 언어</h2>

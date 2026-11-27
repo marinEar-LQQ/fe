@@ -39,9 +39,10 @@ function read(key: string): string | null {
   }
 }
 
-/** 저장된 엔진 모드 (기본 online). 다음 시작 때 적용 */
+/** 저장된 엔진 모드 (기본 online). 다음 시작 때 적용. 'local' 은 a2c454b 에서 쓰던 이름(= offline) */
 export function getEngineModePref(): EngineModePref {
-  return read(MODE_KEY) === 'offline' ? 'offline' : 'online'
+  const v = read(MODE_KEY)
+  return v === 'offline' || v === 'local' ? 'offline' : 'online'
 }
 export function setEngineModePref(mode: EngineModePref): void {
   localStorage.setItem(MODE_KEY, mode)

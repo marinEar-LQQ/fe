@@ -287,7 +287,7 @@ export const ko = {
     emptyWaitingHint: '발화가 감지되면 분석 진행 상태와 자막이 여기에 표시됩니다.',
     emptyHint: '수신 시작 또는 파일 분석을 눌러 시작하세요.',
     emptyHintDemo: '수신 시작, 파일 분석 또는 시연 시나리오를 눌러 시작하세요.',
-    emptyFiltered: '조건에 맞는 교신이 없습니다',
+    emptyFiltered: '해당하는 교신이 없습니다',
     emptyFilteredHint: '‘전체’ 탭에서 모든 교신을 볼 수 있습니다.',
   },
   task: {

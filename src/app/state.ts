@@ -321,13 +321,29 @@ function timeOf(iso: string, startMs: number): number {
   return Number.isNaN(t) ? startMs : t
 }
 
+/**
+ * 이 교신이 지금 작업과 관계있는지.
+ * 장소가 일치·차이로 판정된 교신은 관계있음. 인식이 엇갈린 교신(ambiguous)은 등록한 선박명이나 터미널이 들렸을 때만.
+ * (전에는 'unrelated' 만 뺐는데, 시연 기록에는 그런 교신이 없어 "내 작업"을 눌러도 목록이 그대로였다)
+ */
+export function isMine(entry: MessageEntry, task: AppState['taskState']['active']): boolean {
+  const r = entry.result
+  if (!r) return true // 분석 중인 교신은 숨기지 않는다
+  const kind = r.comparison.kind
+  if (kind === 'match' || kind === 'difference') return true
+  if (kind !== 'ambiguous' || !task) return false
+  const vessels = [task.ownVessel, task.targetVessel].filter(Boolean)
+  return r.candidates.some((c) => !c.negated && ((c.field === 'vessel' && vessels.includes(c.value)) || (c.field === 'terminal' && c.value === task.terminalId)))
+}
+
 export function buildFeed(state: AppState, filter: Filter): FeedItem[] {
   const items: { at: number; seq: number; item: FeedItem }[] = []
   state.messageState.order.forEach((id, seq) => {
     const entry = state.messageState.byId[id]
     const kind = entry.result?.comparison.kind
-    if (filter === 'mine' && kind === 'unrelated') return
-    if (filter === 'review' && !(kind === 'difference' || kind === 'ambiguous')) return
+    if (filter === 'mine' && !isMine(entry, state.taskState.active)) return
+    // 재확인: 아직 확인하지 않은 것만 (탭 옆 숫자와 같은 기준). 확인한 교신은 '전체'에 남는다
+    if (filter === 'review' && !((kind === 'difference' || kind === 'ambiguous') && (state.reviewState[id] ?? 'unreviewed') === 'unreviewed')) return
     items.push({ at: timeOf(entry.utterance.capturedAt, entry.utterance.startMs), seq, item: { kind: 'utterance', entry } })
   })
   // 누락 구간은 재확인 필터에서는 숨긴다 (판정 대상이 아님)

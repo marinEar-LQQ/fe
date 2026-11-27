@@ -22,11 +22,14 @@ export function TaskPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [history, setHistory] = useState<TaskVersion[]>([])
+  /** 새 작업 등록 모드: 지금 작업을 고치는 게 아니라 새 작업(새 일지)을 만든다. 이전 작업은 '지난 작업 일지'에 남는다 */
+  const [fresh, setFresh] = useState(false)
 
-  // 현재 기준을 폼 초기값으로
+  // 현재 기준을 폼 초기값으로 (새 작업 모드면 빈 폼)
   useEffect(() => {
-    if (active) setDraft({ taskId: active.taskId, ownVessel: active.ownVessel, targetVessel: active.targetVessel, terminalId: active.terminalId, berthId: active.berthId, note: active.note })
-  }, [active])
+    if (fresh) setDraft(EMPTY)
+    else if (active) setDraft({ taskId: active.taskId, ownVessel: active.ownVessel, targetVessel: active.targetVessel, terminalId: active.terminalId, berthId: active.berthId, note: active.note })
+  }, [active, fresh])
 
   useEffect(() => {
     if (!active) return setHistory([])
@@ -41,6 +44,7 @@ export function TaskPage() {
   const ports = [...new Set(CATALOG.terminals.map((x) => x.port).filter(Boolean))]
   const port = terminal?.port ?? (ports.length === 1 ? ports[0] : null)
   const dirty =
+    fresh ||
     !active ||
     draft.ownVessel !== active.ownVessel ||
     draft.targetVessel !== active.targetVessel ||
@@ -66,7 +70,14 @@ export function TaskPage() {
     setSaveError(null)
     try {
       // 저장 성공 후에만 기준이 바뀐다 (task.updated 이벤트로 반영)
-      await saveTask(draft)
+      if (fresh) {
+        // 새 작업: 기준 버전 검사 없이 새 taskId 로 저장하고, 화면의 이전 작업 교신 목록을 비운다 (기록은 DB 에 남는다)
+        await engine.saveTask({ ...draft, taskId: undefined })
+        dispatch({ type: 'clear-messages' })
+        setFresh(false)
+      } else {
+        await saveTask(draft)
+      }
       navigate('/monitor')
     } catch (e) {
       const { code, message } = describeError(e)
@@ -81,7 +92,24 @@ export function TaskPage() {
 
   return (
     <>
-      <h1>{active ? t.task.titleEdit : t.task.titleNew}</h1>
+      <h1>{active && !fresh ? t.task.titleEdit : t.task.titleNew}</h1>
+      {active &&
+        (fresh ? (
+          <Notice
+            tone="info"
+            action={
+              <button type="button" className="btn sm" onClick={() => setFresh(false)}>
+                {t.task.cancelNew}
+              </button>
+            }
+          >
+            {t.task.newTaskHint}
+          </Notice>
+        ) : (
+          <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => setFresh(true)}>
+            {t.task.newTask}
+          </button>
+        ))}
 
       <form onSubmit={onSubmit} noValidate className="form-grid">
         {/* 선박명 하나로 입력 → 엔진의 내 선박·작업 대상 선박 둘 다에 같은 이름을 넣는다 (교신 판정은 둘 중 하나만 맞아도 내 작업) */}
@@ -149,11 +177,11 @@ export function TaskPage() {
         {saveError && <Notice tone="danger">{t.task.saveFailed(saveError)}</Notice>}
 
         <button type="submit" className="btn primary lg block" disabled={saving}>
-          {saving ? t.task.saving : !dirty ? t.task.goMonitor : active ? t.task.saveVersion(active.version + 1) : t.task.saveAndGo}
+          {saving ? t.task.saving : !dirty ? t.task.goMonitor : active && !fresh ? t.task.saveVersion(active.version + 1) : t.task.saveAndGo}
         </button>
       </form>
 
-      {history.length > 1 && (
+      {!fresh && history.length > 1 && (
         <>
           <h2>{t.task.history}</h2>
           <div className="timeline-rail">

@@ -1264,3 +1264,12 @@ progress::-moz-progress-bar {
   flex-shrink: 0;
   pointer-events: none;
 }
+
+/* 지난 작업 일지 목록 (작업 일지 화면 아래) */
+.past-log {
+  color: inherit;
+  text-decoration: none;
+}
+.past-log:hover {
+  border-color: var(--ink);
+}

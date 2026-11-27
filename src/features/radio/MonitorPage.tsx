@@ -8,6 +8,7 @@ import { LANGS } from '../../contracts/lang'
 import { formatMs, needsReview } from '../../contracts/labels'
 import { useT } from '../../i18n'
 import { Badge, Contour, DemoBadge, EmptyState, EngineBadge, InputBadge, LevelMeter, Notice, Segmented, StatusLabel, StatusMark } from '../../ui/components'
+import { ConsentDialog, OnlineUnavailableNotice } from '../settings/online'
 import { UtteranceCard } from './UtteranceCard'
 
 /** 장소 표기: 카탈로그 표시명 + 선석 라벨 (카탈로그에 없으면 코드 그대로) */
@@ -54,16 +55,24 @@ function GapCard({ gap }: { gap: GapEntry }) {
 
 /** 02 교신 모니터링 */
 export function MonitorPage() {
-  const { state, dispatch, demoAvailable, startDemo, startFile, startLive, stop, setLang } = useApp()
+  const { state, dispatch, engineKind, demoAvailable, startDemo, startFile, startLive, stop, setLang } = useApp()
   const t = useT()
   const fileRef = useRef<HTMLInputElement>(null)
   const [fileName, setFileName] = useState<string | null>(null)
+  // 온라인 첫 분석 전 개인정보 동의: 동의하면 하려던 행동을 이어서 실행
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+  const withConsent = (action: () => void) => {
+    if (engineKind === 'online' && !state.preferences.onlineConsent) setPendingAction(() => action)
+    else action()
+  }
   const { session, inputState, engineState, messageState, uiState, taskState, preferences, wakeLock } = state
   const running = session.source !== null
   const task = taskState.active
   const readiness = engineState.readiness
   // 작업이 없으면 세션을 열 수 없고(openSession 은 taskId 필수), 모델이 없으면 MODEL_NOT_READY
-  const blockedReason = !task ? 'no-task' : !readiness ? 'loading' : !readiness.canAnalyze ? 'model' : null
+  // 온라인 모드는 엔진 canAnalyze 가 서버 확인 전에도 true 라, 중계 서버 확인(online.status)까지 본다
+  const onlineBlock = engineKind === 'online' && state.online.status !== 'ok' ? (state.online.status === 'unavailable' ? 'online' : 'loading') : null
+  const blockedReason = !task ? 'no-task' : !readiness ? 'loading' : !readiness.canAnalyze ? 'model' : onlineBlock
 
   // 발화와 누락 구간을 세션 시간순으로 (최신이 위)
   const feed = buildFeed(state, uiState.filter)
@@ -107,6 +116,9 @@ export function MonitorPage() {
         </Notice>
       )}
 
+      <OnlineUnavailableNotice />
+      {engineKind === 'online' && state.online.status === 'checking' && <p className="small muted">{t.online.checking}</p>}
+
       {task && <TaskRef task={task} />}
 
       <div className="inline-field">
@@ -126,11 +138,11 @@ export function MonitorPage() {
             ■ {t.monitor.stopLive}
           </button>
         ) : (
-          <button className="btn primary" onClick={() => void startLive()} disabled={running || blockedReason !== null || inputState.status === 'requesting'}>
+          <button className="btn primary" onClick={() => withConsent(() => void startLive())} disabled={running || blockedReason !== null || inputState.status === 'requesting'}>
             ● {t.monitor.startLive}
           </button>
         )}
-        <button className="btn" onClick={() => fileRef.current?.click()} disabled={running || blockedReason !== null}>
+        <button className="btn" onClick={() => withConsent(() => fileRef.current?.click())} disabled={running || blockedReason !== null}>
           {session.source === 'file' ? t.monitor.sendingFile : t.monitor.analyzeFile}
         </button>
         {demoAvailable && (
@@ -189,6 +201,17 @@ export function MonitorPage() {
           { value: 'mine', label: t.monitor.filterMine },
           { value: 'review', label: pending ? `${t.monitor.filterReview} ${pending}` : t.monitor.filterReview },
         ]}
+      />
+
+      <ConsentDialog
+        open={pendingAction !== null}
+        onAgree={() => {
+          dispatch({ type: 'set-pref', prefs: { onlineConsent: true } })
+          const action = pendingAction
+          setPendingAction(null)
+          action?.()
+        }}
+        onCancel={() => setPendingAction(null)}
       />
 
       {feed.length === 0 ? (

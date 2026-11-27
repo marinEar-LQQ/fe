@@ -9,6 +9,7 @@ import { StartPage } from '../features/start/StartPage'
 import { TaskPage } from '../features/task/TaskPage'
 import { useT } from '../i18n'
 import { CompassLogo, IconLog, IconRadio, IconReview, IconSettings, IconSettingsSmall, IconTask, Notice } from '../ui/components'
+import { useEngineModeLabel } from '../features/settings/online'
 import { AppProvider, useApp } from './AppContext'
 import { ErrorBoundary } from './ErrorBoundary'
 
@@ -16,6 +17,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 function TopBar() {
   const { state } = useApp()
   const t = useT()
+  const modeLabel = useEngineModeLabel()
   const live = state.session.source === 'live'
   const liveGaps = live ? state.gaps.filter((g) => g.sessionId === state.session.sessionId).length : 0
   return (
@@ -25,6 +27,11 @@ function TopBar() {
         <span className="brand-name">marinEar</span>
       </Link>
       <div className="topbar-actions">
+        {modeLabel && (
+          <span className={`chip ${state.online.status === 'unavailable' ? 'alert' : ''}`} title={t.engineSettings.title}>
+            {modeLabel}
+          </span>
+        )}
         {live && (
           <NavLink to="/monitor" className={`badge ${state.inputState.engine === 'disconnected' ? 'danger' : liveGaps > 0 ? 'warn' : 'ok'}`} aria-label={t.app.liveBadge}>
             ● {state.inputState.engine === 'disconnected' ? t.app.disconnected : liveGaps > 0 ? t.app.receivingGaps(liveGaps) : t.app.receiving}
@@ -87,8 +94,11 @@ function Toasts() {
             </button>
           }
         >
-          <span className="mono small muted">{e.code}</span>
-          <div>{e.message}</div>
+          {/* 코드별 화면 언어 라벨 + 엔진이 보낸 원문은 작게 */}
+          <b>{t.errorCode[e.code]}</b>
+          <div className="small muted">
+            <span className="mono">{e.code}</span> · {e.message}
+          </div>
         </Notice>
       ))}
     </div>

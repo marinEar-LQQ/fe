@@ -2,16 +2,15 @@ import { DEFAULT_ASSET_MANIFEST, type AssetStatus, type LoadProgress, type Model
 import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
-import { engineStatus } from '../../app/state'
-import { getOfflineModePref, setOfflineModePref } from '../../engine'
+import { getBlockRemotePref, getEngineModePref, setBlockRemotePref, setEngineModePref, type EngineModePref } from '../../engine'
 import { LANGS } from '../../contracts/lang'
-import { ASSET_STATUS_LABEL, LANG_AVAILABILITY_LABEL } from '../../contracts/labels'
-import { Badge, Card, EngineBadge, Notice } from '../../ui/components'
+import { useT } from '../../i18n'
+import { Badge, Card, Notice, Segmented, Switch } from '../../ui/components'
+import { OnlineUnavailableNotice, PrivacyText, useEngineModeLabel } from './online'
 
 const ASSET_TONE = { ready: 'ok', missing: 'warn', downloading: 'info', verifying: 'info', integrity_failed: 'danger', error: 'danger' } as const
 const LANG_TONE = { source: 'muted', ready: 'ok', not_installed: 'warn', unsupported: 'muted' } as const
-const ROLE_LABEL: Record<ModelRole, string> = { asr: '음성인식', translation: '번역', enhancer: '잡음 완화', vad: '발화 감지', tokenizer: '토크나이저' }
-const SELF_TEST_LABEL = { pass: ['ok', '자체 검사 통과'], fail: ['danger', '자체 검사 실패'], not_run: ['muted', '자체 검사 전'] } as const
+const SELF_TEST_TONE = { pass: 'ok', fail: 'danger', not_run: 'muted' } as const
 
 const fmtMB = (n: number | null | undefined) => (n == null ? '-' : n >= 1e9 ? `${(n / 1e9).toFixed(2)} GB` : `${(n / 1e6).toFixed(1)} MB`)
 
@@ -36,24 +35,151 @@ function rows(readiness: Readiness | null, progress: Record<string, LoadProgress
     const manifest = DEFAULT_ASSET_MANIFEST.models.find((m) => m.modelId === modelId)
     const r = readiness?.models.find((m) => m.modelId === modelId)
     const p = progress[modelId]
-    // 다운로드 중에는 진행률의 상태가 최신이다 (readiness.models 는 load 가 끝나야 갱신됨)
     const status: AssetStatus = loading && p ? p.status : (r?.status ?? p?.status ?? 'missing')
     return { modelId, role: r?.role ?? manifest?.role ?? 'asr', license: manifest?.license ?? null, status, selfTest: r?.selfTest ?? 'not_run', progress: p }
   })
 }
 
-export function EnginePanel() {
-  const { state, engineKind, engineOffline, loadModels, refreshReadiness } = useApp()
-  const [offlinePref, setOfflinePref] = useState(getOfflineModePref)
-  const needsReload = engineKind === 'worker' && offlinePref !== engineOffline
-  const liveRunning = state.session.source !== null
+/** 온라인 모드: 중계 서버 연결 상태 (전사·번역 가능 여부) */
+function OnlineStatusRows() {
+  const { state, proxyUrl, checkOnline } = useApp()
+  const t = useT()
+  const { status, translate } = state.online
+  const asrText = status === 'ok' ? t.online.ok : status === 'unavailable' ? t.online.no : status === 'checking' ? t.online.checking : t.online.unknown
+  const trText = status !== 'ok' ? (status === 'unavailable' ? t.online.no : asrText) : translate ? t.online.ok : t.online.noKey
+  const tone = (ok: boolean | null) => (ok === null ? '' : ok ? 'ok' : 'alert')
+  return (
+    <>
+      <div className="status-row">
+        <span>{t.online.server}</span>
+        <strong className="mono small">{proxyUrl}</strong>
+      </div>
+      <div className="status-row">
+        <span>{t.online.asr}</span>
+        <strong className={tone(status === 'ok' ? true : status === 'unavailable' ? false : null)}>{asrText}</strong>
+      </div>
+      <div className="status-row">
+        <span>{t.online.translate}</span>
+        <strong className={tone(status === 'ok' ? Boolean(translate) : status === 'unavailable' ? false : null)}>{trText}</strong>
+      </div>
+      <OnlineUnavailableNotice />
+      {status !== 'unavailable' && (
+        <button type="button" className="btn sm" style={{ alignSelf: 'flex-start' }} onClick={() => void checkOnline()} disabled={status === 'checking'}>
+          {status === 'checking' ? t.online.checking : t.online.check}
+        </button>
+      )}
+    </>
+  )
+}
+
+/** 오프라인 모드: 모델 다운로드·진행률·자체 검사 (첫 설치 약 565MB) */
+function OfflineModels() {
+  const { state, blockRemote, loadModels, refreshReadiness } = useApp()
+  const t = useT()
   const { readiness } = state.engineState
   const { loading, progress, error } = state.assets
   const list = rows(readiness, progress, loading)
   const anyReady = list.some((r) => r.status === 'ready')
-  const { hash } = useLocation()
+  const [blockPref, setBlockPref] = useState(getBlockRemotePref)
 
-  // 교신 화면의 "설정으로" 링크(/settings#engine)로 오면 이 카드로 스크롤
+  return (
+    <>
+      {error && <Notice tone="danger">{t.engineSettings.modelFailed(error)}</Notice>}
+      <div className="btn-row">
+        <button className="btn primary" onClick={() => void loadModels()} disabled={loading}>
+          {loading ? t.engineSettings.modelPreparing : anyReady ? t.engineSettings.modelRecheck : t.engineSettings.modelDownload}
+        </button>
+        <button className="btn" onClick={() => void refreshReadiness()} disabled={loading}>
+          {t.engineSettings.refresh}
+        </button>
+      </div>
+      {!anyReady && !loading && (
+        <p className="small muted">
+          {t.engineSettings.sizeNote}
+          {blockRemote ? ` ${t.engineSettings.blockedNote}` : ''}
+        </p>
+      )}
+
+      <ul className="timeline">
+        {list.map((m) => {
+          const pct = percent(m.progress)
+          const showBar = m.status === 'downloading' || m.status === 'verifying'
+          return (
+            <li key={m.modelId} className="card soft">
+              <div className="utt-head">
+                <b>
+                  {t.engineSettings.roles[m.role]} · <span className="mono small">{m.modelId}</span>
+                </b>
+              </div>
+              <div className="status-strip">
+                <Badge tone={ASSET_TONE[m.status]}>
+                  {t.assetStatus[m.status]}
+                  {m.status === 'downloading' && pct !== null ? ` ${pct}%` : ''}
+                </Badge>
+                <Badge tone={SELF_TEST_TONE[m.selfTest]}>{t.engineSettings.selfTest[m.selfTest]}</Badge>
+              </div>
+              <p className="small muted">
+                {m.progress && m.progress.loadedBytes > 0 && `${fmtMB(m.progress.loadedBytes)}${m.progress.totalBytes ? ` / ${fmtMB(m.progress.totalBytes)}` : ''} · `}
+                {m.license}
+              </p>
+              {showBar && <progress max={100} value={m.status === 'downloading' && pct !== null ? pct : undefined} aria-label={`${m.modelId} ${t.assetStatus[m.status]}`} style={{ width: '100%' }} />}
+            </li>
+          )
+        })}
+      </ul>
+
+      <div className="setting-row">
+        <span>
+          {t.engineSettings.blockRemote}
+          <br />
+          <span className="small muted">{t.engineSettings.blockRemoteHint}</span>
+        </span>
+        <Switch
+          checked={blockPref}
+          label={t.engineSettings.blockRemote}
+          onText={t.settings.on}
+          offText={t.settings.off}
+          onChange={(v) => {
+            setBlockRemotePref(v)
+            setBlockPref(v)
+          }}
+        />
+      </div>
+      {blockPref !== blockRemote && <ReloadNotice />}
+    </>
+  )
+}
+
+function ReloadNotice() {
+  const { state } = useApp()
+  const t = useT()
+  return (
+    <Notice
+      tone="warn"
+      action={
+        <button className="btn sm primary" onClick={() => window.location.reload()}>
+          {t.engineSettings.reloadNow}
+        </button>
+      }
+    >
+      {t.engineSettings.reloadNeeded}
+      {state.session.source !== null && ` ${t.engineSettings.runningWarn}`}
+    </Notice>
+  )
+}
+
+/** 설정 › 엔진 모드·연결 상태 */
+export function EnginePanel() {
+  const { state, engineKind, proxyUrl } = useApp()
+  const t = useT()
+  const { readiness } = state.engineState
+  const modeLabel = useEngineModeLabel()
+  const [modePref, setModePref] = useState<EngineModePref>(getEngineModePref)
+  const { hash } = useLocation()
+  const needsReload = engineKind !== 'mock' && modePref !== engineKind
+  const analyzable = Boolean(readiness?.canAnalyze) && (engineKind !== 'online' || state.online.status === 'ok')
+
+  // 교신 화면의 "설정으로"·"오프라인 모드로 전환"(/settings#engine)으로 오면 이 카드로 스크롤
   useEffect(() => {
     if (hash === '#engine') document.getElementById('engine')?.scrollIntoView({ block: 'start' })
   }, [hash])
@@ -61,148 +187,78 @@ export function EnginePanel() {
   return (
     <Card>
       <div id="engine" className="card-title-row">
-        <h2>분석 엔진 · 오프라인 준비</h2>
-        {readiness && (readiness.offlineReady ? <Badge tone="ok">오프라인 준비 완료</Badge> : <Badge tone="warn">오프라인 준비 미완료</Badge>)}
+        <h2>{t.engineSettings.title}</h2>
+        {modeLabel && <span className="chip">{modeLabel}</span>}
       </div>
 
-      <div className="status-strip" style={{ marginBottom: 12 }}>
-        <EngineBadge status={engineStatus(state)} queueDepth={state.engineState.queueDepth} />
-        {readiness && (readiness.canAnalyze ? <Badge tone="ok">분석 가능</Badge> : <Badge tone="warn">모델 준비 필요</Badge>)}
-        {readiness?.catalog && (
-          <Badge tone={readiness.catalog.kind === 'demo' ? 'demo' : 'muted'} title="장소 카탈로그">
-            {readiness.catalog.catalogVersion}
-            {readiness.catalog.kind === 'demo' ? ' · 시연용' : ''}
-          </Badge>
-        )}
-      </div>
-
-      {readiness?.fixtureMode && (
-        <div style={{ marginBottom: 12 }}>
-          <Notice tone="warn">현재 시연(Mock) 엔진입니다. 자막·비교·번역은 시연용 고정 데이터이며 실제 음성 분석이 아닙니다. 모델 다운로드가 필요 없습니다.</Notice>
-        </div>
-      )}
-      {error && (
-        <div style={{ marginBottom: 12 }}>
-          <Notice tone="danger">모델 준비에 실패했습니다: {error}</Notice>
-        </div>
-      )}
-
-      {engineKind === 'worker' && (
-        <div className="btn-row" style={{ marginBottom: 12 }}>
-          <button className="btn primary" onClick={() => void loadModels()} disabled={loading}>
-            {loading ? '모델 준비 중…' : anyReady ? '모델 다시 확인' : '모델 다운로드'}
-          </button>
-          <button className="btn ghost" onClick={() => void refreshReadiness()} disabled={loading}>
-            상태 새로고침
-          </button>
-        </div>
-      )}
-      {engineKind === 'worker' && !anyReady && !loading && (
-        <p className="small muted">
-          처음 한 번은 모델 <b>약 565MB</b>(음성인식 whisper-small 약 250MB + 번역 Opus-MT 3개 약 315MB)를 내려받습니다. Wi-Fi 에서 받으세요. 받은 뒤에는 기기 안에서만 분석합니다.
-          {engineOffline && ' 지금은 오프라인 모드라 내려받을 수 없습니다 — 아래에서 끄고 새로고침하세요.'}
-        </p>
+      {engineKind === 'mock' ? (
+        <Notice tone="warn">{t.engineSettings.mockNote}</Notice>
+      ) : (
+        <>
+          <Segmented<EngineModePref>
+            label={t.engineSettings.modeLabel}
+            value={modePref}
+            onChange={(m) => {
+              setEngineModePref(m)
+              setModePref(m)
+            }}
+            options={[
+              { value: 'online', label: t.engineMode.online },
+              { value: 'offline', label: t.engineMode.offline },
+            ]}
+          />
+          <p className="small muted">{modePref === 'online' ? t.engineSettings.modeHintOnline : t.engineSettings.modeHintOffline}</p>
+          {needsReload && <ReloadNotice />}
+        </>
       )}
 
-      {engineKind === 'worker' && (
-        <div style={{ margin: '0 0 12px' }}>
-          <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44 }}>
-            <input
-              type="checkbox"
-              checked={offlinePref}
-              onChange={(e) => {
-                setOfflineModePref(e.target.checked)
-                setOfflinePref(e.target.checked)
-              }}
-              style={{ width: 22, height: 22 }}
-            />
-            오프라인 모드 (현장용)
-            <span className={`badge ${engineOffline ? 'ok' : 'muted'}`}>{engineOffline ? '적용 중' : '꺼짐'}</span>
-          </label>
-          <p className="small muted" style={{ margin: '0 0 0 32px' }}>
-            켜면 이미 받아 둔 모델만 쓰고 인터넷 요청을 막습니다(allowRemote:false). 모델을 처음 받거나 업데이트할 때는 끄세요.
-          </p>
-          {needsReload && (
-            <div style={{ marginTop: 8 }}>
-              <Notice
-                tone="warn"
-                action={
-                  <button className="btn sm primary" onClick={() => window.location.reload()}>
-                    지금 새로고침
-                  </button>
-                }
-              >
-                오프라인 모드 {offlinePref ? '켜기' : '끄기'}는 새로고침하면 적용됩니다.{liveRunning && ' 지금 진행 중인 수신·분석은 중단됩니다.'}
-              </Notice>
-            </div>
-          )}
-        </div>
+      {engineKind === 'online' && (
+        <>
+          <OnlineStatusRows />
+          <div className="card soft" style={{ marginTop: 6 }}>
+            <PrivacyText />
+            <p className="small">
+              <b>{state.preferences.onlineConsent ? t.online.consentGiven : t.online.consentNotGiven}</b>
+            </p>
+          </div>
+        </>
       )}
-
-      <ul className="timeline">
-        {list.map((m) => {
-          const pct = percent(m.progress)
-          const [stTone, stText] = SELF_TEST_LABEL[m.selfTest]
-          const showBar = m.status === 'downloading' || m.status === 'verifying'
-          return (
-            <li key={m.modelId} style={{ gridTemplateColumns: '1fr auto' }}>
-              <div>
-                <div className="t-title" style={{ fontWeight: 600 }}>
-                  {ROLE_LABEL[m.role]} · <span className="mono small">{m.modelId}</span>
-                </div>
-                <div className="t-detail">
-                  {m.progress && m.progress.loadedBytes > 0 && (
-                    <>
-                      {fmtMB(m.progress.loadedBytes)}
-                      {m.progress.totalBytes ? ` / ${fmtMB(m.progress.totalBytes)}` : ''}
-                      {pct !== null && m.status === 'downloading' ? ` · ${pct}%` : ''}
-                      {' · '}
-                    </>
-                  )}
-                  {m.license}
-                </div>
-                {showBar && (
-                  <progress
-                    max={100}
-                    value={m.status === 'downloading' && pct !== null ? pct : undefined}
-                    aria-label={`${m.modelId} ${ASSET_STATUS_LABEL[m.status]}`}
-                    style={{ width: '100%', marginTop: 6 }}
-                  />
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-                <Badge tone={ASSET_TONE[m.status]}>
-                  {ASSET_STATUS_LABEL[m.status]}
-                  {m.status === 'downloading' && pct !== null ? ` ${pct}%` : ''}
-                </Badge>
-                <Badge tone={stTone}>{stText}</Badge>
-              </div>
-            </li>
-          )
-        })}
-      </ul>
-
-      <h3 style={{ margin: '16px 0 8px', fontSize: '1rem' }}>번역 언어 자원</h3>
-      <dl className="kv">
-        {LANGS.map((l) => {
-          const a = readiness?.languages[l.code]
-          return (
-            <div key={l.code} style={{ display: 'contents' }}>
-              <dt>{l.label}</dt>
-              <dd>{a ? <Badge tone={LANG_TONE[a]}>{l.code === 'ko' ? '원문' : a === 'ready' ? '사용 가능' : LANG_AVAILABILITY_LABEL[a]}</Badge> : '-'}</dd>
-            </div>
-          )
-        })}
-      </dl>
+      {engineKind === 'offline' && <OfflineModels />}
 
       {readiness && (
-        <p className="small muted">
-          엔진 저장 공간: {fmtMB(readiness.storage.usageBytes)} / {fmtMB(readiness.storage.quotaBytes)}
-        </p>
+        <>
+          <div className="status-row">
+            <span>{t.engineSettings.canAnalyze}</span>
+            <strong className={analyzable ? 'ok' : 'alert'}>{analyzable ? t.engineSettings.yes : t.engineSettings.no}</strong>
+          </div>
+          {engineKind === 'offline' && (
+            <div className="status-row">
+              <span>{t.engineSettings.offlineReady}</span>
+              <strong className={readiness.offlineReady ? 'ok' : 'alert'}>{readiness.offlineReady ? t.engineSettings.yes : t.engineSettings.no}</strong>
+            </div>
+          )}
+          {readiness.catalog && (
+            <div className="status-row">
+              <span>{t.engineSettings.catalog}</span>
+              <strong className="mono small">
+                {readiness.catalog.catalogVersion}
+                {readiness.catalog.kind === 'demo' ? ` · ${t.engineSettings.catalogDemo}` : ''}
+              </strong>
+            </div>
+          )}
+          <h3 style={{ marginTop: 6 }}>{t.engineSettings.langResources}</h3>
+          {LANGS.map((l) => {
+            const a = readiness.languages[l.code]
+            return (
+              <div key={l.code} className="status-row">
+                <span>{l.native}</span>
+                <Badge tone={LANG_TONE[a]}>{l.code === 'ko' ? t.langAvailability.source : t.langAvailability[a]}</Badge>
+              </div>
+            )
+          })}
+          <p className="small muted">{engineKind === 'online' ? t.engineSettings.onlineFootnote(proxyUrl ?? '') : t.engineSettings.offlineFootnote}</p>
+        </>
       )}
-      <p className="small muted" style={{ marginBottom: 0 }}>
-        모델·장소 데이터·선택 언어 번역 자원이 모두 기기에 있고 자체 검사를 통과해야 오프라인 준비 완료로 표시됩니다. 앱 설치(홈 화면 추가) 여부와는 별개입니다.
-      </p>
     </Card>
   )
 }

@@ -53,6 +53,7 @@ const readiness = (over: Partial<Readiness> = {}): Readiness => ({
   offlineReady: false,
   canAnalyze: true,
   fixtureMode: false,
+  mode: 'offline',
   ...over,
 })
 
@@ -192,5 +193,26 @@ describe('live input status', () => {
     expect(buildFeed(s, 'all').map((i) => (i.kind === 'gap' ? 'gap' : i.entry.utterance.utteranceId))).toEqual(['u2', 'gap', 'u1'])
     expect(buildFeed(s, 'review').some((i) => i.kind === 'gap')).toBe(false)
     expect(reducer(s, { type: 'clear-messages' }).gaps).toEqual([])
+  })
+})
+
+describe('online mode status', () => {
+  it('marks the relay server unavailable on ONLINE_UNAVAILABLE and keeps it until the user retries', () => {
+    let s = reducer(initialState(), { type: 'online-status', status: 'ok', translate: true })
+    s = run([ev('engine.error', { code: 'ONLINE_UNAVAILABLE', message: '온라인 분석 서버에 연결할 수 없습니다.', recoverable: true })], s)
+    expect(s.online.status).toBe('unavailable')
+    expect(s.online.error).toContain('온라인')
+    expect(s.errors.at(-1)?.code).toBe('ONLINE_UNAVAILABLE')
+    // 다른 오류는 연결 상태를 바꾸지 않는다
+    const other = run([ev('engine.error', { code: 'INFERENCE_FAILED', message: 'x', recoverable: true })], reducer(initialState(), { type: 'online-status', status: 'ok' }))
+    expect(other.online.status).toBe('ok')
+  })
+})
+
+describe('notifications', () => {
+  it('keeps one notice per error code (repeated ONLINE_UNAVAILABLE from each utterance)', () => {
+    const e = () => ev('engine.error', { code: 'ONLINE_UNAVAILABLE', message: 'x', recoverable: true })
+    const s = run([e(), e(), e(), ev('engine.error', { code: 'AUDIO_GAP', message: 'gap', recoverable: true })])
+    expect(s.errors.map((x) => x.code)).toEqual(['ONLINE_UNAVAILABLE', 'AUDIO_GAP'])
   })
 })

@@ -1,15 +1,8 @@
 import type { SummaryLine, Translation } from 'marinear-engine'
+import { ko } from '../i18n/ko'
 
 /** 정형 요약 줄의 한국어 필드명 (관제·항해사용 보조 라벨). 모든 field 를 타입으로 강제 */
-export const SUMMARY_FIELD_KO: Record<SummaryLine['field'], string> = {
-  vessel: '선박',
-  terminal: '터미널',
-  berth: '선석',
-  time: '시각',
-  speed: '속력',
-  course: '침로',
-  instruction: '지시',
-}
+export const SUMMARY_FIELD_KO: Record<SummaryLine['field'], string> = ko.summaryField
 
 export interface TranslationView {
   /** 정형 요약 카드 (항상 먼저, 크게). status 가 unavailable 이어도 summary 가 있으면 표시 */

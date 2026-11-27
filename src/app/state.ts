@@ -39,6 +39,7 @@ export type EngineStatus = Readiness['engine']
 /** 엔진 오류 코드 + 화면에서 생기는 알림 (화면 꺼짐 방지 해제, 백그라운드 전환) */
 export type NoticeCode = ErrorCode | 'WAKE_LOCK_RELEASED' | 'BACKGROUND_PAUSE'
 export type WakeLockState = 'off' | 'active' | 'released' | 'failed' | 'unsupported'
+export type OnlineStatus = 'unknown' | 'checking' | 'ok' | 'unavailable'
 
 /** 교신 목록에 끼워 넣는 수신 누락 구간 (input.status 의 gap) */
 export interface GapEntry {
@@ -55,6 +56,11 @@ export interface AppState {
   engineState: { queueDepth: number; readiness: Readiness | null }
   /** 모델 다운로드·검사 진행 (설정 > 분석 엔진). 화면 이동해도 유지 */
   assets: { loading: boolean; progress: Record<string, LoadProgress>; error: string | null }
+  /**
+   * 온라인 모드 중계 서버 상태. loadAssets(=/api/health) 성공 → ok, 실패·분석 중 ONLINE_UNAVAILABLE → unavailable.
+   * (엔진 readiness.canAnalyze 는 온라인 모드에서 서버 확인 전에도 true 라 이 상태로 분석 시작을 막는다)
+   */
+  online: { status: OnlineStatus; translate: boolean | null; error: string | null }
   /** source 가 있으면 수신/분석 중. 파일 분석은 analyzeFile 이 세션을 직접 열어 sessionId 가 없을 수 있다. */
   session: { sessionId: string | null; source: UiSource | null }
   messageState: { order: string[]; byId: Record<string, MessageEntry> }
@@ -64,8 +70,8 @@ export interface AppState {
   translations: Record<string, Translation>
   reviewState: Record<string, ReviewState>
   errors: { id: string; code: NoticeCode; message: string; at: number }[]
-  /** langChosen: 시작 언어 선택(00)을 마쳤는지. 첫 실행에만 false */
-  preferences: { targetLang: LangCode; inputDeviceId: string | null; largeText: boolean; langChosen: boolean }
+  /** langChosen: 시작 언어 선택(00)을 마쳤는지. onlineConsent: 온라인 분석(음성 외부 전송) 고지에 동의했는지 */
+  preferences: { targetLang: LangCode; inputDeviceId: string | null; largeText: boolean; langChosen: boolean; onlineConsent: boolean }
   uiState: { filter: Filter }
   seenEventIds: Record<string, true>
 }
@@ -77,9 +83,9 @@ export function loadPreferences(): AppState['preferences'] {
     const raw = JSON.parse(localStorage.getItem('marinear.prefs') ?? '{}')
     // 예전 버전에서 저장된 설정이 있으면 이미 앱을 쓴 사용자 → 시작 화면을 다시 보이지 않는다
     const langChosen = typeof raw.langChosen === 'boolean' ? raw.langChosen : 'targetLang' in raw
-    return { targetLang: normalizeLang(raw.targetLang), inputDeviceId: raw.inputDeviceId ?? null, largeText: Boolean(raw.largeText), langChosen }
+    return { targetLang: normalizeLang(raw.targetLang), inputDeviceId: raw.inputDeviceId ?? null, largeText: Boolean(raw.largeText), langChosen, onlineConsent: raw.onlineConsent === true }
   } catch {
-    return { targetLang: 'ko', inputDeviceId: null, largeText: false, langChosen: false }
+    return { targetLang: 'ko', inputDeviceId: null, largeText: false, langChosen: false, onlineConsent: false }
   }
 }
 
@@ -90,6 +96,7 @@ export function initialState(prefs?: AppState['preferences']): AppState {
     wakeLock: 'off',
     engineState: { queueDepth: 0, readiness: null },
     assets: { loading: false, progress: {}, error: null },
+    online: { status: 'unknown', translate: null, error: null },
     session: { sessionId: null, source: null },
     messageState: { order: [], byId: {} },
     gaps: [],
@@ -97,7 +104,7 @@ export function initialState(prefs?: AppState['preferences']): AppState {
     translations: {},
     reviewState: {},
     errors: [],
-    preferences: prefs ?? { targetLang: 'ko', inputDeviceId: null, largeText: false, langChosen: false },
+    preferences: prefs ?? { targetLang: 'ko', inputDeviceId: null, largeText: false, langChosen: false, onlineConsent: false },
     uiState: { filter: 'all' },
     seenEventIds: {},
   }
@@ -119,6 +126,7 @@ export type Action =
   | { type: 'error'; code: NoticeCode; message: string }
   | { type: 'wake-lock'; state: WakeLockState }
   | { type: 'pending-reviews'; count: number }
+  | { type: 'online-status'; status: OnlineStatus; translate?: boolean | null; error?: string | null }
   | { type: 'dismiss-error'; id: string }
   | { type: 'clear-messages' }
 
@@ -150,6 +158,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, inputState: { ...state.inputState, status: action.status, level: action.level ?? (action.status === 'capturing' ? state.inputState.level : 0), detail: action.detail ?? null } }
     case 'wake-lock':
       return { ...state, wakeLock: action.state }
+    case 'online-status':
+      return { ...state, online: { status: action.status, translate: action.translate ?? state.online.translate, error: action.error ?? null } }
     case 'pending-reviews':
       return state.pendingReviews === action.count ? state : { ...state, pendingReviews: action.count }
     case 'input-level':
@@ -171,7 +181,9 @@ export function reducer(state: AppState, action: Action): AppState {
 
 function pushError(state: AppState, code: NoticeCode, message: string): AppState {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-  return { ...state, errors: [...state.errors.slice(-4), { id, code, message, at: Date.now() }] }
+  // 같은 코드가 이미 떠 있으면 새로 쌓지 않고 바꾼다 (발화마다 같은 오류가 와도 알림은 하나)
+  const rest = state.errors.filter((e) => e.code !== code)
+  return { ...state, errors: [...rest.slice(-4), { id, code, message, at: Date.now() }] }
 }
 
 /** 완료된 번역을 늦게 온 pending 으로 되돌리지 않는다 */
@@ -250,8 +262,12 @@ export function applyEvent(state: AppState, event: AnyEngineEvent): AppState {
     case 'task.updated':
       return { ...s, taskState: { active: event.payload.version, loaded: true } }
 
-    case 'engine.error':
-      return pushError(s, event.payload.code, event.payload.message)
+    case 'engine.error': {
+      const next = pushError(s, event.payload.code, event.payload.message)
+      // 온라인 분석 실패: 연결 상태를 '사용 불가'로 (자동 재시도하지 않는다 — 사용자가 다시 시도)
+      if (event.payload.code === 'ONLINE_UNAVAILABLE') return { ...next, online: { ...next.online, status: 'unavailable', error: event.payload.message } }
+      return next
+    }
   }
 }
 

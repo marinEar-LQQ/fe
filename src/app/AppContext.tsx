@@ -15,8 +15,11 @@ interface AppApi {
   dispatch: React.Dispatch<Action>
   engine: EngineClient
   engineKind: EngineKind
+  /** online 모드 중계 서버 주소 */
+  proxyUrl: string | null
   /** 실행 중인 엔진에 적용된 오프라인 모드 (allowRemote:false) */
-  engineOffline: boolean
+  /** offline 모드에서 외부 다운로드를 막았는지 (allowRemote:false 적용 중) */
+  blockRemote: boolean
   /** Mock 엔진일 때만 시연 시나리오를 쓸 수 있다 */
   demoAvailable: boolean
   startDemo: () => Promise<void>
@@ -29,6 +32,8 @@ interface AppApi {
   refreshReadiness: () => Promise<void>
   /** loadAssets(DEFAULT_ASSET_MANIFEST) — 모델 다운로드(최초) 또는 캐시에서 다시 불러와 자체 검사 */
   loadModels: () => Promise<void>
+  /** 온라인 모드: 중계 서버 연결 확인 (loadAssets → /api/health). 사용자가 누를 때만 — 자동 재시도 없음 */
+  checkOnline: () => Promise<void>
   setLang: (lang: LangCode) => void
 }
 
@@ -104,6 +109,20 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     progressBuf.current.clear()
   }, [])
 
+  const checkOnline = useCallback(async () => {
+    if (stateRef.current.online.status === 'checking') return
+    dispatch({ type: 'online-status', status: 'checking' })
+    try {
+      const readiness = await engine.loadAssets(DEFAULT_ASSET_MANIFEST)
+      dispatch({ type: 'readiness', readiness })
+      // 번역 키가 없으면 엔진이 번역기를 빼므로 en 이 ready 가 아니다
+      dispatch({ type: 'online-status', status: 'ok', translate: readiness.languages.en === 'ready' })
+    } catch (e) {
+      dispatch({ type: 'online-status', status: 'unavailable', error: describeError(e).message })
+      await refreshReadiness()
+    }
+  }, [engine, refreshReadiness])
+
   const loadModels = useCallback(async () => {
     if (stateRef.current.assets.loading) return
     dispatch({ type: 'assets-start' })
@@ -126,10 +145,11 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
     }
   }, [engine, flushProgress, refreshReadiness])
 
-  // 이전에 모델을 받아 둔 기기면 시작할 때 캐시에서 다시 불러온다 (Worker 는 재시작마다 모델을 메모리에 올려야 함)
+  // 시작할 때: online 은 중계 서버 상태 확인(0.2초), offline 은 받아 둔 모델을 캐시에서 다시 불러온다
   useEffect(() => {
-    if (setup.kind === 'worker' && localStorage.getItem(ASSETS_INSTALLED_KEY) === '1') void loadModels()
-  }, [setup.kind, loadModels])
+    if (setup.kind === 'online') void checkOnline()
+    else if (setup.kind === 'offline' && localStorage.getItem(ASSETS_INSTALLED_KEY) === '1') void loadModels()
+  }, [setup.kind, loadModels, checkOnline])
 
   // 엔진 이벤트 구독 + 초기 상태 복원
   useEffect(() => {
@@ -310,7 +330,8 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       dispatch,
       engine,
       engineKind: setup.kind,
-      engineOffline: setup.offlineMode,
+      proxyUrl: setup.proxyUrl,
+      blockRemote: setup.blockRemote,
       demoAvailable: demo !== null,
       startDemo,
       startFile,
@@ -320,9 +341,10 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       review: (cmd) => engine.reviewUtterance(cmd),
       refreshReadiness,
       loadModels,
+      checkOnline,
       setLang: (lang) => dispatch({ type: 'set-pref', prefs: { targetLang: lang } }),
     }),
-    [state, engine, setup.kind, setup.offlineMode, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
+    [state, engine, setup.kind, setup.proxyUrl, setup.blockRemote, demo, checkOnline, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
   )
 
   return (

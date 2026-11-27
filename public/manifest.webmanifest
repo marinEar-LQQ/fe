@@ -1,0 +1,15 @@
+{
+  "name": "marinEar",
+  "short_name": "marinEar",
+  "description": "교신 핵심 정보와 내 작업 기록의 차이를 확인하는 조타실 보조 화면",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1520",
+  "theme_color": "#0b1520",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

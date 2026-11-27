@@ -1,0 +1,53 @@
+/*
+ * 디자인 토큰 — 재디자인 시 이 파일과 src/ui 컴포넌트만 바꾸면 된다.
+ * 색상·서체·여백은 확정안이 아니다 (프론트 기술설명서 02 "재디자인에 넘길 조건").
+ */
+:root {
+  --font-sans: 'Pretendard', system-ui, -apple-system, 'Segoe UI', 'Noto Sans KR', 'Noto Sans Myanmar', 'Padauk', sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+
+  --bg: #0b1520;
+  --surface: #122131;
+  --surface-2: #1a2d42;
+  --border: #284058;
+  --text: #e8eef5;
+  --text-dim: #9db0c4;
+  --text-faint: #6c8197;
+  --accent: #4fb3ff;
+  --accent-ink: #04121f;
+
+  --ok: #3ccf91;
+  --warn: #ffb547;
+  --danger: #ff6b6b;
+  --info: #8ea7ff;
+  --muted: #7d8fa3;
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-md: 16px;
+  --fs-lg: 19px;
+  --fs-caption: 22px; /* 자막 */
+  --fs-xl: 26px;
+
+  --touch: 48px;
+  --nav-h: 64px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+:root[data-large-text='true'] {
+  --fs-sm: 16px;
+  --fs-md: 18px;
+  --fs-lg: 22px;
+  --fs-caption: 28px;
+  --fs-xl: 30px;
+}

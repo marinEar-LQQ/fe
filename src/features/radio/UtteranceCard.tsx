@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { translationKey, type MessageEntry } from '../../app/state'
 import { AUDIO_FLAG_LABEL, COMPARISON_HINT, STAGE_LABEL, formatMs, needsReview } from '../../contracts/labels'
+import { extraEntities } from '../../engine/entities'
 import { correctionInfo } from '../../engine/report'
 import { formatReason } from '../../engine/transcript'
 import { TranscriptNotes, TranscriptView } from './Transcript'
@@ -29,6 +30,21 @@ export function ResultFlags({ result }: { result: AnalysisResult }) {
       {result.audioFlags.map((f) => (
         <Badge key={f} tone="warn">
           {AUDIO_FLAG_LABEL[f]}
+        </Badge>
+      ))}
+    </div>
+  )
+}
+
+/** 속력·침로·지시어·호출부호 칩 (null 이면 숨김) */
+export function EntityChips({ result }: { result: AnalysisResult }) {
+  const items = extraEntities(result.entities)
+  if (items.length === 0) return null
+  return (
+    <div className="status-strip" aria-label="추출값">
+      {items.map((it) => (
+        <Badge key={it.key} tone="muted">
+          {it.label} {it.value}
         </Badge>
       ))}
     </div>
@@ -85,6 +101,7 @@ export function UtteranceCard({ entry, showReviewLink = true, review: storedRevi
         <TranscriptView result={result} />
       </div>
       <TranscriptNotes result={result} />
+      <EntityChips result={result} />
       <ResultFlags result={result} />
 
       {(kind !== 'match' || reasons.length > 0) && (

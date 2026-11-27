@@ -10,6 +10,7 @@ import { Badge, Card, ComparisonBadge, DemoBadge, EmptyState, Notice, ReviewBadg
 import { EnhancedTranscriptLine, RawTranscriptLine, TranscriptNotes, TranscriptView } from '../radio/Transcript'
 import { ResultFlags } from '../radio/UtteranceCard'
 import { formatAlternatives, formatReason, UNCERTAIN_FIELD_LABEL } from '../../engine/transcript'
+import { extraEntities } from '../../engine/entities'
 import { useUtterance } from './useUtterance'
 
 const CLIP_REASON: Record<Exclude<AudioClip['status'], 'available'>, string> = {
@@ -122,6 +123,7 @@ export function ReviewDetailPage() {
   const snapshot = versions.find((v) => v.version === utterance.taskVersion) ?? (active?.version === utterance.taskVersion ? active : undefined)
   const place = placeOf(result)
   const diffs = result.comparison.diffs
+  const extras = extraEntities(result.entities)
   const correction = correctionInfo(result)
   const reviewStatus: ReviewState = state.reviewState[utterance.utteranceId] ?? storedReview
   // 원음 교차 검사가 끝나지 않은(pending/unavailable) 결과로는 반영할 수 없다 (엔진: UNCERTAIN_VALUE)
@@ -199,6 +201,20 @@ export function ReviewDetailPage() {
           {result.comparison.reasonCodes.length ? ` · ${result.comparison.reasonCodes.map((r) => formatReason(r, result)).join(', ')}` : ''}
         </div>
       </Card>
+
+      {extras.length > 0 && (
+        <Card>
+          <h2>추출값</h2>
+          <dl className="kv">
+            {extras.map((it) => (
+              <div key={it.key} style={{ display: 'contents' }}>
+                <dt>{it.label}</dt>
+                <dd>{it.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </Card>
+      )}
 
       {/* 장소 비교 */}
       <Card>

@@ -1,6 +1,6 @@
 import type { AnalysisResult, AnyEngineEvent, EngineEventType, EventPayloads, Readiness, Utterance } from 'marinear-engine'
 import { describe, expect, it } from 'vitest'
-import { applyEvent, engineStatus, initialState, reducer, translationKey, translationTargets, type AppState } from './state'
+import { applyEvent, buildFeed, engineStatus, initialState, reducer, translationKey, translationTargets, type AppState } from './state'
 
 const utt: Utterance = {
   utteranceId: 'u1',
@@ -162,5 +162,33 @@ describe('translationTargets', () => {
     expect(translationTargets(s, 'vi')).toEqual([]) // not_installed
     const requested = reducer(s, { type: 'translation', translation: { utteranceId: 'u1', sourceRevision: 2, targetLang: 'id', status: 'pending', text: null, protectedTokens: [], modelVersion: null, issues: [], createdAt: '' } })
     expect(translationTargets(requested, 'id')).toEqual([])
+  })
+})
+
+describe('live input status', () => {
+  const live = () => reducer(initialState(), { type: 'session', sessionId: 's1', source: 'live' })
+  const gap = { reason: 'AUDIO_GAP' as const, startMs: 1500, endMs: 1800, missingSeq: { from: 15, to: 17 }, at: '' }
+
+  it('starts at receiving once the live session is open and follows input.status for that session only', () => {
+    let s = live()
+    expect(s.inputState.engine).toBe('receiving')
+    s = run([ev('input.status', { status: 'gap', gap, queueDepth: 0 }, { sessionId: 's1' })], s)
+    expect(s.inputState.engine).toBe('gap')
+    s = run([ev('input.status', { status: 'closed', queueDepth: 0 }, { sessionId: 'other' })], s)
+    expect(s.inputState.engine).toBe('gap')
+    s = run([ev('input.status', { status: 'disconnected', queueDepth: 0 }, { sessionId: 's1' })], s)
+    expect(s.inputState.status).toBe('disconnected')
+    expect(reducer(s, { type: 'session', sessionId: null, source: null }).inputState.engine).toBeNull()
+  })
+
+  it('records each gap once and places it in the feed by session time (newest first), hidden in the review filter', () => {
+    const e = ev('input.status', { status: 'gap', gap, queueDepth: 0 }, { sessionId: 's1' })
+    let s = run([queued(), e, { ...e, eventId: 'dup-id' }], live())
+    expect(s.gaps).toHaveLength(1)
+    const later = { ...utt, utteranceId: 'u2', startMs: 3000 }
+    s = run([ev('analysis.progress', { stage: 'queued', queueDepth: 1, utterance: later }, { utteranceId: 'u2' })], s)
+    expect(buildFeed(s, 'all').map((i) => (i.kind === 'gap' ? 'gap' : i.entry.utterance.utteranceId))).toEqual(['u2', 'gap', 'u1'])
+    expect(buildFeed(s, 'review').some((i) => i.kind === 'gap')).toBe(false)
+    expect(reducer(s, { type: 'clear-messages' }).gaps).toEqual([])
   })
 })

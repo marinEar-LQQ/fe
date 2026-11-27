@@ -3,6 +3,8 @@ import type {
   AnalysisStage,
   AnyEngineEvent,
   ErrorCode,
+  GapEvent,
+  InputStatus,
   LangCode,
   LoadProgress,
   Readiness,
@@ -34,19 +36,32 @@ export type UiInputStatus = 'idle' | 'requesting' | 'capturing' | 'disconnected'
 /** 화면에서 시작한 수신 종류. demo 는 Mock 의 playScenario */
 export type UiSource = 'live' | 'file' | 'demo'
 export type EngineStatus = Readiness['engine']
+/** 엔진 오류 코드 + 화면에서 생기는 알림 (화면 꺼짐 방지 해제, 백그라운드 전환) */
+export type NoticeCode = ErrorCode | 'WAKE_LOCK_RELEASED' | 'BACKGROUND_PAUSE'
+export type WakeLockState = 'off' | 'active' | 'released' | 'failed' | 'unsupported'
+
+/** 교신 목록에 끼워 넣는 수신 누락 구간 (input.status 의 gap) */
+export interface GapEntry {
+  id: string
+  sessionId: string
+  gap: GapEvent
+}
 
 export interface AppState {
   taskState: { active: TaskVersion | null; loaded: boolean }
-  inputState: { status: UiInputStatus; level: number; detail: string | null }
+  /** status: 화면(마이크) 상태, engine: 현재 live 세션에 대해 엔진이 보낸 input.status */
+  inputState: { status: UiInputStatus; level: number; detail: string | null; engine: InputStatus | null }
+  wakeLock: WakeLockState
   engineState: { queueDepth: number; readiness: Readiness | null }
   /** 모델 다운로드·검사 진행 (설정 > 분석 엔진). 화면 이동해도 유지 */
   assets: { loading: boolean; progress: Record<string, LoadProgress>; error: string | null }
   /** source 가 있으면 수신/분석 중. 파일 분석은 analyzeFile 이 세션을 직접 열어 sessionId 가 없을 수 있다. */
   session: { sessionId: string | null; source: UiSource | null }
   messageState: { order: string[]; byId: Record<string, MessageEntry> }
+  gaps: GapEntry[]
   translations: Record<string, Translation>
   reviewState: Record<string, ReviewState>
-  errors: { id: string; code: ErrorCode; message: string; at: number }[]
+  errors: { id: string; code: NoticeCode; message: string; at: number }[]
   preferences: { targetLang: LangCode; inputDeviceId: string | null; largeText: boolean }
   uiState: { filter: Filter }
   seenEventIds: Record<string, true>
@@ -66,11 +81,13 @@ export function loadPreferences(): AppState['preferences'] {
 export function initialState(prefs?: AppState['preferences']): AppState {
   return {
     taskState: { active: null, loaded: false },
-    inputState: { status: 'idle', level: 0, detail: null },
+    inputState: { status: 'idle', level: 0, detail: null, engine: null },
+    wakeLock: 'off',
     engineState: { queueDepth: 0, readiness: null },
     assets: { loading: false, progress: {}, error: null },
     session: { sessionId: null, source: null },
     messageState: { order: [], byId: {} },
+    gaps: [],
     translations: {},
     reviewState: {},
     errors: [],
@@ -93,7 +110,8 @@ export type Action =
   | { type: 'translation'; translation: Translation }
   | { type: 'set-filter'; filter: Filter }
   | { type: 'set-pref'; prefs: Partial<AppState['preferences']> }
-  | { type: 'error'; code: ErrorCode; message: string }
+  | { type: 'error'; code: NoticeCode; message: string }
+  | { type: 'wake-lock'; state: WakeLockState }
   | { type: 'dismiss-error'; id: string }
   | { type: 'clear-messages' }
 
@@ -115,9 +133,16 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'assets-done':
       return { ...state, assets: { ...state.assets, loading: false, error: action.error } }
     case 'session':
-      return { ...state, session: { sessionId: action.sessionId, source: action.source } }
+      return {
+        ...state,
+        session: { sessionId: action.sessionId, source: action.source },
+        // openSession 이 성공했다면 엔진은 이미 receiving 을 보냈다 (그 이벤트는 sessionId 를 알기 전에 도착)
+        inputState: { ...state.inputState, engine: action.source === 'live' && action.sessionId ? 'receiving' : null },
+      }
     case 'input':
-      return { ...state, inputState: { status: action.status, level: action.level ?? (action.status === 'capturing' ? state.inputState.level : 0), detail: action.detail ?? null } }
+      return { ...state, inputState: { ...state.inputState, status: action.status, level: action.level ?? (action.status === 'capturing' ? state.inputState.level : 0), detail: action.detail ?? null } }
+    case 'wake-lock':
+      return { ...state, wakeLock: action.state }
     case 'input-level':
       return state.inputState.status === 'capturing' ? { ...state, inputState: { ...state.inputState, level: action.level } } : state
     case 'translation':
@@ -131,11 +156,11 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'dismiss-error':
       return { ...state, errors: state.errors.filter((e) => e.id !== action.id) }
     case 'clear-messages':
-      return { ...state, messageState: { order: [], byId: {} }, translations: {}, reviewState: {} }
+      return { ...state, messageState: { order: [], byId: {} }, gaps: [], translations: {}, reviewState: {} }
   }
 }
 
-function pushError(state: AppState, code: ErrorCode, message: string): AppState {
+function pushError(state: AppState, code: NoticeCode, message: string): AppState {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
   return { ...state, errors: [...state.errors.slice(-4), { id, code, message, at: Date.now() }] }
 }
@@ -162,10 +187,12 @@ export function applyEvent(state: AppState, event: AnyEngineEvent): AppState {
 
   switch (event.type) {
     case 'input.status': {
-      const { status } = event.payload
-      if (status === 'disconnected' && event.sessionId && event.sessionId === s.session.sessionId)
-        return { ...s, inputState: { status: 'disconnected', level: 0, detail: '입력 장치 연결이 끊겼습니다.' } }
-      return { ...s, engineState: { ...s.engineState, queueDepth: event.payload.queueDepth } }
+      const { status, gap, queueDepth } = event.payload
+      let next: AppState = { ...s, engineState: { ...s.engineState, queueDepth } }
+      if (gap && event.sessionId) next = withGap(next, event.sessionId, gap)
+      if (!event.sessionId || event.sessionId !== s.session.sessionId) return next
+      if (status === 'disconnected') return { ...next, inputState: { status: 'disconnected', level: 0, detail: '입력 장치 연결이 끊겼습니다.', engine: status } }
+      return { ...next, inputState: { ...next.inputState, engine: status } }
     }
 
     case 'analysis.progress': {
@@ -223,6 +250,29 @@ function withMessage(s: AppState, entry: MessageEntry): AppState {
   const id = entry.utterance.utteranceId
   const order = s.messageState.order.includes(id) ? s.messageState.order : [...s.messageState.order, id]
   return { ...s, messageState: { order, byId: { ...s.messageState.byId, [id]: entry } } }
+}
+
+function withGap(s: AppState, sessionId: string, gap: GapEvent): AppState {
+  const id = `${sessionId}:${gap.reason}:${gap.startMs}`
+  if (s.gaps.some((g) => g.id === id)) return s
+  return { ...s, gaps: [...s.gaps, { id, sessionId, gap }] }
+}
+
+/** 교신 목록 항목: 발화와 누락 구간을 세션 시간순으로 합친다 (최신이 위) */
+export type FeedItem = { kind: 'utterance'; entry: MessageEntry } | { kind: 'gap'; gap: GapEntry }
+
+export function buildFeed(state: AppState, filter: Filter): FeedItem[] {
+  const items: { at: number; seq: number; item: FeedItem }[] = []
+  state.messageState.order.forEach((id, seq) => {
+    const entry = state.messageState.byId[id]
+    const kind = entry.result?.comparison.kind
+    if (filter === 'mine' && kind === 'unrelated') return
+    if (filter === 'review' && !(kind === 'difference' || kind === 'ambiguous')) return
+    items.push({ at: entry.utterance.startMs, seq, item: { kind: 'utterance', entry } })
+  })
+  // 누락 구간은 재확인 필터에서는 숨긴다 (판정 대상이 아님)
+  if (filter !== 'review') state.gaps.forEach((gap, i) => items.push({ at: gap.gap.startMs, seq: i, item: { kind: 'gap', gap } }))
+  return items.sort((a, b) => b.at - a.at || b.seq - a.seq).map((x) => x.item)
 }
 
 /** queued 이벤트를 놓쳤을 때 결과만으로 최소 발화 정보를 만든다 */

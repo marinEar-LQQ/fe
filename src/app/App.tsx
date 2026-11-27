@@ -23,12 +23,19 @@ function TopBar() {
   const { state } = useApp()
   const title = TITLES.find(([p]) => pathname.startsWith(p))?.[1] ?? 'marinEar'
   const task = state.taskState.active
+  const live = state.session.source === 'live'
+  const liveGaps = live ? state.gaps.filter((g) => g.sessionId === state.session.sessionId).length : 0
   return (
     <header className="topbar">
       <div style={{ flex: 1 }}>
         <div className="brand">marinEar</div>
         <h1>{title}</h1>
       </div>
+      {live && (
+        <NavLink to="/monitor" className={`badge ${state.inputState.engine === 'disconnected' ? 'danger' : liveGaps > 0 ? 'warn' : 'ok'}`} style={{ textDecoration: 'none' }} aria-label="실시간 수신 상태">
+          ● {state.inputState.engine === 'disconnected' ? '입력 끊김' : liveGaps > 0 ? `수신 중 · 누락 ${liveGaps}` : '수신 중'}
+        </NavLink>
+      )}
       {task ? (
         <NavLink to="/task" className="badge info" style={{ textDecoration: 'none' }} aria-label="현재 작업 기준">
           {task.targetVessel} · {task.terminalId} {task.berthId} · v{task.version}

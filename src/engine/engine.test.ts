@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { restoreActiveTask } from './restore'
-import { applyEvent, initialState, reducer, type AppState } from '../app/state'
+import { applyEvent, buildFeed, initialState, reducer, type AppState } from '../app/state'
 import { demoControls, findDemoTask } from './demo'
 import { AUDIO_FLAG_LABEL, REASON_LABEL } from '../contracts/labels'
 import { buildTimeline, correctionInfo, displayTranscript } from './report'
@@ -155,6 +155,22 @@ describe('MockEngineClient scenario → UI state', () => {
       expect(e.result?.crossCheck).toBe('complete')
       expect(e.stage).toBe('done')
     }
+  })
+
+  it('reports seq gaps of a live session as input.status gap entries in the feed', async () => {
+    const { engine, events, demo } = await setup()
+    const task = await demo.ensureDemoTask()
+    const session = await engine.openSession(task.taskId, 'live', { deviceLabel: 'test' })
+    let state = reducer(initialState(), { type: 'session', sessionId: session.sessionId, source: 'live' })
+    const sr = 16000
+    const frame = (seq: number) => ({ sessionId: session.sessionId, seq, startMs: seq * 100, sampleRate: sr, channels: 1 as const, pcm: new Float32Array(sr / 10) })
+    for (const seq of [0, 1, 2, 6, 7]) await engine.appendAudio(session.sessionId, frame(seq)) // 3~5 누락
+    await engine.closeSession(session.sessionId)
+    await engine.whenIdle()
+    state = events.reduce(applyEvent, state)
+    expect(state.gaps.length).toBeGreaterThan(0)
+    expect(state.gaps[0].gap.reason).toBe('AUDIO_GAP')
+    expect(buildFeed(state, 'all').some((i) => i.kind === 'gap')).toBe(true)
   })
 
   it('stores notes through engine.saveNote and hides deleted ones in the timeline', async () => {

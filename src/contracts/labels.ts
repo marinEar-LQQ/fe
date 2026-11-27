@@ -1,4 +1,4 @@
-import type { AnalysisStage, AssetStatus, AudioFlag, ComparisonKind, FieldDiff, LangAvailability, ReasonCode, ReviewState, TranslationStatus } from 'marinear-engine'
+import type { AnalysisStage, AssetStatus, AudioFlag, ComparisonKind, FieldDiff, GapReason, InputStatus, LangAvailability, ReasonCode, ReviewState, TranslationStatus } from 'marinear-engine'
 
 /**
  * 화면용 라벨. 타입·계약은 marinear-engine 이 원본이고 여기엔 표시 문구만 둔다.
@@ -45,6 +45,20 @@ export const AUDIO_FLAG_LABEL: Record<AudioFlag, string> = {
   CLIPPING: '입력 포화 · 소리 깨짐',
   AUDIO_GAP: '수신 누락 구간 포함',
   TRUNCATED: '발화가 잘림 (최대 길이 초과)',
+}
+
+/** 엔진이 보는 실시간 입력 상태 (input.status) */
+export const LIVE_INPUT_LABEL: Record<InputStatus, string> = {
+  receiving: '엔진 수신 중',
+  gap: '누락 구간 발생',
+  disconnected: '입력 끊김',
+  closed: '수신 종료',
+}
+
+export const GAP_REASON_LABEL: Record<GapReason, string> = {
+  AUDIO_GAP: '입력 프레임 누락',
+  INPUT_DISCONNECTED: '입력 장치 끊김',
+  QUEUE_OVERFLOW: '처리 대기열 초과 (원음 보존)',
 }
 
 export const DIFF_FIELD_LABEL: Record<FieldDiff['field'], string> = {

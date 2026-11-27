@@ -6,6 +6,7 @@ import type { DemoControls } from '../engine/demo'
 import { markDisconnected } from '../engine/extensions'
 import { restoreActiveTask } from '../engine/restore'
 import { describeError } from './errors'
+import { useLiveGuards } from './useLiveGuards'
 import { initialState, loadPreferences, reducer, translationTargets, type Action, type AppState } from './state'
 
 interface AppApi {
@@ -56,6 +57,8 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
   useEffect(() => {
     stateRef.current = state
   }, [state])
+
+  useLiveGuards(state.session.source === 'live' && state.inputState.status === 'capturing', dispatch)
 
   const fail = useCallback((e: unknown) => {
     const { code, message } = describeError(e)

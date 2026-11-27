@@ -28,6 +28,10 @@ function AudioButton({ utteranceId, variant, label }: { utteranceId: string; var
   useEffect(() => () => releasePlayback(pauseSelf), [pauseSelf])
 
   useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url])
+  // 새 음성 주소가 화면의 <audio> 에 붙은 뒤에 재생한다 (그리기 전에 play 를 부르면 아무 소리도 나지 않았다)
+  useEffect(() => {
+    if (url) audioRef.current?.play().catch(() => setMsg(t.reviewDetail.playFailed))
+  }, [url, t])
 
   async function play() {
     let clip: AudioClip
@@ -45,7 +49,6 @@ function AudioButton({ utteranceId, variant, label }: { utteranceId: string; var
     }
     setUrl(URL.createObjectURL(clip.blob))
     setMsg(null)
-    setTimeout(() => audioRef.current?.play().catch(() => setMsg(t.reviewDetail.playFailed)), 0)
   }
 
   return (

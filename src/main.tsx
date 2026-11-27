@@ -36,9 +36,41 @@ async function resetIfRequested(): Promise<void> {
       localStorage.removeItem('marinear.prefs')
     }
   }
+  await clearRecords()
+}
+
+/**
+ * 기록 저장소(IndexedDB 'marinear')의 내용만 비운다.
+ * DB 를 통째로 지우면(deleteDatabase) 다른 탭의 앱이 열어 둔 연결 때문에 끝나지 않고 이 탭이 멈춘다 (실측).
+ * 내용 비우기는 다른 탭이 열려 있어도 바로 끝난다. DB 가 아직 없으면 아무것도 하지 않는다.
+ */
+async function clearRecords(): Promise<void> {
+  try {
+    const list = (await indexedDB.databases?.()) ?? null
+    if (list && !list.some((d) => d.name === 'marinear')) return
+  } catch {
+    /* databases() 를 못 쓰는 브라우저: 그대로 열어 본다 */
+  }
   await new Promise<void>((done) => {
-    const req = indexedDB.deleteDatabase('marinear')
-    req.onsuccess = req.onerror = req.onblocked = () => done()
+    const open = indexedDB.open('marinear')
+    // 없던 DB 를 여기서 만들면 엔진이 표를 만들지 못하므로, 새로 만드는 경우는 취소한다
+    open.onupgradeneeded = () => open.transaction?.abort()
+    open.onerror = () => done()
+    open.onblocked = () => done()
+    open.onsuccess = () => {
+      const db = open.result
+      const names = [...db.objectStoreNames]
+      if (names.length === 0) {
+        db.close()
+        return done()
+      }
+      const tx = db.transaction(names, 'readwrite')
+      for (const n of names) tx.objectStore(n).clear()
+      tx.oncomplete = tx.onerror = tx.onabort = () => {
+        db.close()
+        done()
+      }
+    }
   })
 }
 

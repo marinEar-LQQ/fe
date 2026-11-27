@@ -162,6 +162,9 @@ export const vi: Messages = {
     speed: 'Tốc độ',
     course: 'Hướng đi',
     instruction: 'Chỉ thị',
+    place: 'Vị trí',
+    distance: 'Khoảng cách',
+    identifier: 'Kênh / ID',
   },
   instruction: {
     REDUCE_SPEED: 'Giảm tốc độ',
@@ -174,6 +177,8 @@ export const vi: Messages = {
     ALTER_COURSE_STBD: 'Chuyển hướng sang phải',
     ALTER_COURSE_PORT: 'Chuyển hướng sang trái',
     CORRECTION: 'Đính chính',
+    ENGINE_TROUBLE: 'Sự cố máy',
+    TOW_REQUESTED: 'Yêu cầu lai dắt',
   },
   entity: {
     speed: 'Tốc độ',

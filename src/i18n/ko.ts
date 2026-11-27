@@ -166,6 +166,9 @@ export const ko = {
     speed: '속력',
     course: '침로',
     instruction: '지시',
+    place: '장소',
+    distance: '거리',
+    identifier: '채널·식별',
   },
   instruction: {
     REDUCE_SPEED: '감속',
@@ -178,6 +181,8 @@ export const ko = {
     ALTER_COURSE_STBD: '우현으로 변침',
     ALTER_COURSE_PORT: '좌현으로 변침',
     CORRECTION: '정정',
+    ENGINE_TROUBLE: '엔진 고장',
+    TOW_REQUESTED: '예인 요청',
   } satisfies Record<InstructionCode, string>,
   entity: {
     speed: '속력',

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useApp } from '../../app/AppContext'
 import { engineStatus } from '../../app/state'
-import { getOfflineModePref, setOfflineModePref } from '../../engine'
+import { getEngineModePref, getOfflineModePref, PROXY_URL, setEngineModePref, setOfflineModePref, type EngineMode } from '../../engine'
 import { LANGS } from '../../contracts/lang'
 import { ASSET_STATUS_LABEL, LANG_AVAILABILITY_LABEL } from '../../contracts/labels'
 import { Badge, Card, EngineBadge, Notice } from '../../ui/components'
@@ -43,9 +43,11 @@ function rows(readiness: Readiness | null, progress: Record<string, LoadProgress
 }
 
 export function EnginePanel() {
-  const { state, engineKind, engineOffline, loadModels, refreshReadiness } = useApp()
+  const { state, engineKind, engineOffline, engineMode, loadModels, refreshReadiness } = useApp()
   const [offlinePref, setOfflinePref] = useState(getOfflineModePref)
-  const needsReload = engineKind === 'worker' && offlinePref !== engineOffline
+  const [modePref, setModePref] = useState<EngineMode>(getEngineModePref)
+  const online = engineKind === 'worker' && engineMode === 'online'
+  const needsReload = engineKind === 'worker' && (modePref !== engineMode || (modePref === 'local' && offlinePref !== engineOffline))
   const liveRunning = state.session.source !== null
   const { readiness } = state.engineState
   const { loading, progress, error } = state.assets
@@ -62,7 +64,7 @@ export function EnginePanel() {
     <Card>
       <div id="engine" className="card-title-row">
         <h2>분석 엔진 · 오프라인 준비</h2>
-        {readiness && (readiness.offlineReady ? <Badge tone="ok">오프라인 준비 완료</Badge> : <Badge tone="warn">오프라인 준비 미완료</Badge>)}
+        {online ? <Badge tone="info">온라인 모드</Badge> : readiness && (readiness.offlineReady ? <Badge tone="ok">오프라인 준비 완료</Badge> : <Badge tone="warn">오프라인 준비 미완료</Badge>)}
       </div>
 
       <div className="status-strip" style={{ marginBottom: 12 }}>
@@ -88,23 +90,51 @@ export function EnginePanel() {
       )}
 
       {engineKind === 'worker' && (
+        <div style={{ margin: '0 0 12px' }}>
+          <div className="btn-row" role="radiogroup" aria-label="분석 위치">
+            {(['online', 'local'] as const).map((m) => (
+              <label key={m} style={{ display: 'flex', gap: 8, alignItems: 'center', minHeight: 44 }}>
+                <input
+                  type="radio"
+                  name="engine-mode"
+                  checked={modePref === m}
+                  onChange={() => {
+                    setEngineModePref(m)
+                    setModePref(m)
+                  }}
+                  style={{ width: 20, height: 20 }}
+                />
+                {m === 'online' ? '온라인 분석 (중계 서버)' : '기기 안 분석 (모델 다운로드)'}
+              </label>
+            ))}
+            <span className={`badge ${online ? 'ok' : 'muted'}`}>{online ? '온라인 적용 중' : '기기 안 적용 중'}</span>
+          </div>
+          {modePref === 'online' && (
+            <p className="small muted" style={{ margin: '4px 0 0' }}>
+              음성을 중계 서버({PROXY_URL})로 보내 클라우드에서 받아쓰기·번역합니다. 모델 다운로드가 필요 없습니다. 백엔드 폴더에서 <code>npm run server</code> 를 먼저 켜세요.
+            </p>
+          )}
+        </div>
+      )}
+
+      {engineKind === 'worker' && (
         <div className="btn-row" style={{ marginBottom: 12 }}>
           <button className="btn primary" onClick={() => void loadModels()} disabled={loading}>
-            {loading ? '모델 준비 중…' : anyReady ? '모델 다시 확인' : '모델 다운로드'}
+            {online ? (loading ? '연결 확인 중…' : '중계 서버 연결 확인') : loading ? '모델 준비 중…' : anyReady ? '모델 다시 확인' : '모델 다운로드'}
           </button>
           <button className="btn ghost" onClick={() => void refreshReadiness()} disabled={loading}>
             상태 새로고침
           </button>
         </div>
       )}
-      {engineKind === 'worker' && !anyReady && !loading && (
+      {engineKind === 'worker' && !online && !anyReady && !loading && (
         <p className="small muted">
           처음 한 번은 모델 <b>약 565MB</b>(음성인식 whisper-small 약 250MB + 번역 Opus-MT 3개 약 315MB)를 내려받습니다. Wi-Fi 에서 받으세요. 받은 뒤에는 기기 안에서만 분석합니다.
           {engineOffline && ' 지금은 오프라인 모드라 내려받을 수 없습니다 — 아래에서 끄고 새로고침하세요.'}
         </p>
       )}
 
-      {engineKind === 'worker' && (
+      {engineKind === 'worker' && modePref === 'local' && (
         <div style={{ margin: '0 0 12px' }}>
           <label style={{ display: 'flex', gap: 10, alignItems: 'center', minHeight: 44 }}>
             <input
@@ -122,7 +152,7 @@ export function EnginePanel() {
           <p className="small muted" style={{ margin: '0 0 0 32px' }}>
             켜면 이미 받아 둔 모델만 쓰고 인터넷 요청을 막습니다(allowRemote:false). 모델을 처음 받거나 업데이트할 때는 끄세요.
           </p>
-          {needsReload && (
+          {needsReload && modePref === 'local' && (
             <div style={{ marginTop: 8 }}>
               <Notice
                 tone="warn"
@@ -139,8 +169,23 @@ export function EnginePanel() {
         </div>
       )}
 
+      {needsReload && modePref !== engineMode && (
+        <div style={{ marginBottom: 12 }}>
+          <Notice
+            tone="warn"
+            action={
+              <button className="btn sm primary" onClick={() => window.location.reload()}>
+                지금 새로고침
+              </button>
+            }
+          >
+            분석 위치 변경은 새로고침하면 적용됩니다.{liveRunning && ' 지금 진행 중인 수신·분석은 중단됩니다.'}
+          </Notice>
+        </div>
+      )}
+
       <ul className="timeline">
-        {list.map((m) => {
+        {(online ? [] : list).map((m) => {
           const pct = percent(m.progress)
           const [stTone, stText] = SELF_TEST_LABEL[m.selfTest]
           const showBar = m.status === 'downloading' || m.status === 'verifying'

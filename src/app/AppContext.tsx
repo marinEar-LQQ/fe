@@ -1,7 +1,7 @@
 import { DEFAULT_ASSET_MANIFEST, analyzeFile, type EngineClient, type LoadProgress, type LangCode, type ReviewCommand, type ReviewEvent, type SaveTaskResult, type TaskDraft } from 'marinear-engine'
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { CaptureError, startCapture, type CaptureHandle } from '../audio/capture'
-import { createEngine, type EngineKind, type EngineSetup } from '../engine'
+import { createEngine, type EngineKind, type EngineSetup, type EngineMode } from '../engine'
 import type { DemoControls } from '../engine/demo'
 import { markDisconnected } from '../engine/extensions'
 import { restoreActiveTask } from '../engine/restore'
@@ -17,6 +17,8 @@ interface AppApi {
   engineKind: EngineKind
   /** 실행 중인 엔진에 적용된 오프라인 모드 (allowRemote:false) */
   engineOffline: boolean
+  /** 이 엔진의 분석 위치: online = 중계 서버, local = 브라우저 안 모델 */
+  engineMode: EngineMode
   /** Mock 엔진일 때만 시연 시나리오를 쓸 수 있다 */
   demoAvailable: boolean
   startDemo: () => Promise<void>
@@ -311,6 +313,7 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       engine,
       engineKind: setup.kind,
       engineOffline: setup.offlineMode,
+      engineMode: setup.engineMode,
       demoAvailable: demo !== null,
       startDemo,
       startFile,
@@ -322,7 +325,7 @@ function EngineProvider({ setup, children }: { setup: EngineSetup; children: Rea
       loadModels,
       setLang: (lang) => dispatch({ type: 'set-pref', prefs: { targetLang: lang } }),
     }),
-    [state, engine, setup.kind, setup.offlineMode, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
+    [state, engine, setup.kind, setup.offlineMode, setup.engineMode, demo, startDemo, startFile, startLive, stop, refreshReadiness, loadModels],
   )
 
   return (

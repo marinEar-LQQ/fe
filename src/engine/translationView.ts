@@ -9,6 +9,9 @@ export const SUMMARY_FIELD_KO: Record<SummaryLine['field'], string> = {
   speed: '속력',
   course: '침로',
   instruction: '지시',
+  place: '장소',
+  distance: '거리',
+  identifier: '채널·식별',
 }
 
 export interface TranslationView {

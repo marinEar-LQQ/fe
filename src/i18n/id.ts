@@ -162,6 +162,9 @@ export const id: Messages = {
     speed: 'Kecepatan',
     course: 'Haluan',
     instruction: 'Instruksi',
+    place: 'Lokasi',
+    distance: 'Jarak',
+    identifier: 'Kanal / ID',
   },
   instruction: {
     REDUCE_SPEED: 'Kurangi kecepatan',
@@ -174,6 +177,8 @@ export const id: Messages = {
     ALTER_COURSE_STBD: 'Ubah haluan ke kanan',
     ALTER_COURSE_PORT: 'Ubah haluan ke kiri',
     CORRECTION: 'Koreksi',
+    ENGINE_TROUBLE: 'Gangguan mesin',
+    TOW_REQUESTED: 'Minta kapal tunda',
   },
   entity: {
     speed: 'Kecepatan',

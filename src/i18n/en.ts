@@ -162,6 +162,9 @@ export const en: Messages = {
     speed: 'Speed',
     course: 'Course',
     instruction: 'Instruction',
+    place: 'Place',
+    distance: 'Distance',
+    identifier: 'Channel / ID',
   },
   instruction: {
     REDUCE_SPEED: 'Reduce speed',
@@ -174,6 +177,8 @@ export const en: Messages = {
     ALTER_COURSE_STBD: 'Alter course to starboard',
     ALTER_COURSE_PORT: 'Alter course to port',
     CORRECTION: 'Correction',
+    ENGINE_TROUBLE: 'Engine trouble',
+    TOW_REQUESTED: 'Tow requested',
   },
   entity: {
     speed: 'Speed',

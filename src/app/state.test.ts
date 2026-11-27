@@ -44,6 +44,7 @@ function ev<T extends EngineEventType>(type: T, payload: EventPayloads[T], meta:
 }
 
 const readiness = (over: Partial<Readiness> = {}): Readiness => ({
+  mode: 'online',
   engine: 'ready',
   queueDepth: 0,
   models: [],

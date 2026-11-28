@@ -45,7 +45,7 @@ describe('demo task reuse', () => {
 })
 
 describe('MockEngineClient scenario → UI state', () => {
-  it('delivers revision 1 (pending) then revision 2 (complete) per utterance and the reducer keeps the latest', async () => {
+  it('delivers one complete result per utterance (enhanced and raw transcribed together)', async () => {
     const { engine, events, demo } = await setup()
     const task = await demo.ensureDemoTask()
     let state: AppState = reducer(initialState(), { type: 'readiness', readiness: await engine.checkReadiness() })
@@ -54,13 +54,13 @@ describe('MockEngineClient scenario → UI state', () => {
     state = events.reduce(applyEvent, state)
 
     const finals = events.filter((e) => e.type === 'analysis.final')
-    const firstRev = finals.find((e) => e.type === 'analysis.final' && e.payload.result.revision === 1)
-    expect(firstRev && firstRev.type === 'analysis.final' && firstRev.payload.result.crossCheck).toBe('pending')
+    expect(finals).toHaveLength(9)
+    expect(finals.every((e) => e.type === 'analysis.final' && e.payload.result.crossCheck === 'complete')).toBe(true)
 
     const entries = state.messageState.order.map((id) => state.messageState.byId[id])
     expect(entries).toHaveLength(9) // 팀 대본 3개, 9개 대사
     for (const e of entries) {
-      expect(e.result?.revision).toBeGreaterThanOrEqual(2)
+      expect(e.result?.revision).toBe(1)
       expect(e.result?.crossCheck).toBe('complete')
       expect(e.stage).toBe('done')
       expect(e.fixture).toBe(true) // 시연 데이터 배지
